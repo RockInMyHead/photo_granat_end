@@ -156,9 +156,6 @@ class PhotoClusterApp {
                         img.alt = item.name;
                         div.appendChild(img);
                     
-                        const caption = document.createElement('div');
-                        caption.textContent = item.name;
-                        div.appendChild(caption);
                         div.addEventListener('click', () => this.navigateToFolder(item.path));
                         this.folderContents.appendChild(div);
                         continue;
@@ -179,7 +176,9 @@ class PhotoClusterApp {
                 img.src = `/api/image/preview?path=${encodeURIComponent(item.path)}&size=150`;
                 img.alt = item.name;
                 const caption = document.createElement('div');
-                caption.textContent = item.name;
+                // Remove leading icon and space from caption
+                const displayName = item.name.replace(/^[^\s]+\s*/, '');
+                caption.textContent = displayName;
                 div.appendChild(img);
                 div.appendChild(caption);
                 this.folderContents.appendChild(div);
