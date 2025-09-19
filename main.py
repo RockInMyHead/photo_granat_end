@@ -11,10 +11,11 @@ import shutil
 import asyncio
 from pathlib import Path
 import psutil
-from PIL import Image
+from PIL import Image, ImageOps
 import uuid
 import time
 import tempfile
+from io import BytesIO
 
 from cluster import build_plan_live, distribute_to_folders, process_group_folder, IMG_EXTS
 
@@ -342,30 +343,22 @@ async def get_task(task_id: str):
     return app_state["current_tasks"][task_id]
 
 @app.get("/api/image/preview")
-async def get_image_preview(path: str, size: int = 100):
+async def get_image_preview(path: str, size: int = 150):
     """Получить превью изображения"""
     img_path = Path(path)
     if not img_path.exists() or img_path.suffix.lower() not in IMG_EXTS:
         raise HTTPException(status_code=404, detail="Изображение не найдено")
     
     try:
-        # Создаем временное превью
+        # Создаем превью в памяти
         with Image.open(img_path) as img:
             img = img.convert("RGB")
-            img.thumbnail((size, size), Image.Resampling.LANCZOS)
-            
-            # Сохраняем во временный файл
-            preview_path = Path(f"/tmp/preview_{uuid.uuid4().hex}.jpg")
-            img.save(preview_path, "JPEG", quality=85)
-            
-            # Читаем и возвращаем файл
-            with open(preview_path, "rb") as f:
-                content = f.read()
-            
-            preview_path.unlink()  # Удаляем временный файл
-            
-            from fastapi.responses import Response
-            return Response(content=content, media_type="image/jpeg")
+            img = ImageOps.fit(img, (size, size), Image.Resampling.LANCZOS)
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=85)
+            buf.seek(0)
+            from fastapi.responses import StreamingResponse
+            return StreamingResponse(buf, media_type="image/jpeg")
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка создания превью: {str(e)}")
