@@ -3,10 +3,11 @@ import cv2
 import shutil
 import numpy as np
 from pathlib import Path
-from typing import List, Dict, Set, Tuple
+from typing import List, Dict, Set, Tuple, Optional
 from sklearn.metrics.pairwise import cosine_distances
 from insightface.app import FaceAnalysis
 import hdbscan
+from collections import defaultdict
 
 IMG_EXTS = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp'}
 
@@ -28,6 +29,83 @@ def imread_safe(path: Path):
     except Exception:
         return None
 
+def merge_clusters_by_centroid(
+    embeddings: List[np.ndarray],
+    owners: List[Path],
+    raw_labels: np.ndarray,
+    threshold: Optional[float] = None,
+    auto_threshold: bool = False,
+    margin: float = 0.05,
+    min_threshold: float = 0.2,
+    max_threshold: float = 0.4,
+    progress_callback=None
+) -> Tuple[Dict[int, Set[Path]], Dict[Path, Set[int]]]:
+
+    if progress_callback:
+        progress_callback("🔄 Объединение близких кластеров...", 92)
+
+    cluster_embeddings: Dict[int, List[np.ndarray]] = defaultdict(list)
+    cluster_paths: Dict[int, List[Path]] = defaultdict(list)
+
+    for label, emb, path in zip(raw_labels, embeddings, owners):
+        if label == -1:
+            continue
+        cluster_embeddings[label].append(emb)
+        cluster_paths[label].append(path)
+
+    centroids = {label: np.mean(embs, axis=0) for label, embs in cluster_embeddings.items()}
+    labels = list(centroids.keys())
+
+    if auto_threshold and threshold is None:
+        pairwise = [cosine_distances([centroids[a]], [centroids[b]])[0][0]
+                    for i, a in enumerate(labels) for b in labels[i+1:]]
+        if pairwise:
+            mean_dist = np.mean(pairwise)
+            threshold = max(min_threshold, min(mean_dist - margin, max_threshold))
+        else:
+            threshold = min_threshold
+
+        if progress_callback:
+            progress_callback(f"📏 Авто-порог объединения: {threshold:.3f}", 93)
+    elif threshold is None:
+        threshold = 0.3
+
+    next_cluster_id = 0
+    label_to_group = {}
+    total = len(labels)
+
+    for i, label_i in enumerate(labels):
+        if progress_callback:
+            percent = 93 + int((i + 1) / max(total, 1) * 2)
+            progress_callback(f"🔁 Слияние кластеров: {percent}% ({i+1}/{total})", percent)
+
+        if label_i in label_to_group:
+            continue
+        group = [label_i]
+        for j in range(i + 1, len(labels)):
+            label_j = labels[j]
+            if label_j in label_to_group:
+                continue
+            dist = cosine_distances([centroids[label_i]], [centroids[label_j]])[0][0]
+            if dist < threshold:
+                group.append(label_j)
+
+        for l in group:
+            label_to_group[l] = next_cluster_id
+        next_cluster_id += 1
+
+    merged_clusters: Dict[int, Set[Path]] = defaultdict(set)
+    cluster_by_img: Dict[Path, Set[int]] = defaultdict(set)
+
+    for label, path in zip(raw_labels, owners):
+        if label == -1:
+            continue
+        new_label = label_to_group[label]
+        merged_clusters[new_label].add(path)
+        cluster_by_img[path].add(new_label)
+
+    return merged_clusters, cluster_by_img
+
 def build_plan_live(
     input_dir: Path,
     det_size=(640, 640),
@@ -40,12 +118,9 @@ def build_plan_live(
     input_dir = Path(input_dir)
     all_images = [p for p in input_dir.rglob("*") if is_image(p) and "общие" not in str(p.parent).lower()]
 
-    print(f"📂 Сканируется: {input_dir}, найдено изображений: {len(all_images)}")
-
-    # Этап 1: Инициализация модели
     if progress_callback:
-        progress_callback("🔄 Инициализация модели InsightFace...", 5)
-    
+        progress_callback(f"📂 Сканируется: {input_dir}, найдено изображений: {len(all_images)}", 1)
+
     app = FaceAnalysis(name="buffalo_l", providers=list(providers))
     ctx_id = -1 if "cpu" in str(providers).lower() else 0
     app.prepare(ctx_id=ctx_id, det_size=det_size)
@@ -121,20 +196,16 @@ def build_plan_live(
     model = hdbscan.HDBSCAN(metric='precomputed', min_cluster_size=min_cluster_size, min_samples=min_samples)
     raw_labels = model.fit_predict(distance_matrix)
 
-    if progress_callback:
-        progress_callback("🔄 Формирование кластеров...", 90)
-
-    label_map = {label: idx + 1 for idx, label in enumerate(sorted(set(raw_labels) - {-1}))}  # start from 1
-
-    cluster_map: Dict[int, Set[Path]] = {}
-    cluster_by_img: Dict[Path, Set[int]] = {}
-
-    for lbl, path in zip(raw_labels, owners):
-        if lbl == -1:
-            continue
-        new_lbl = label_map[lbl]
-        cluster_map.setdefault(new_lbl, set()).add(path)
-        cluster_by_img.setdefault(path, set()).add(new_lbl)
+    cluster_map, cluster_by_img = merge_clusters_by_centroid(
+        embeddings=embeddings,
+        owners=owners,
+        raw_labels=raw_labels,
+        auto_threshold=True,
+        margin=0.05,
+        min_threshold=0.2,
+        max_threshold=0.4,
+        progress_callback=progress_callback
+    )
 
     # Этап 3: Формирование плана распределения
     if progress_callback:

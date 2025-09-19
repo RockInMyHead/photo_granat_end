@@ -121,7 +121,7 @@ class PhotoClusterApp {
         }
 
         for (const item of contents) {
-            // Проверяем, не является ли это кнопкой "Назад"
+            // Навигационная кнопка Назад
             if (item.name.includes('⬅️')) {
                 const button = document.createElement('button');
                 button.className = 'folder-btn back';
@@ -135,71 +135,52 @@ class PhotoClusterApp {
                 this.folderContents.appendChild(button);
                 continue;
             }
-            
             if (item.is_directory) {
-                // Получаем содержимое папки для превью
+                // Папка: если есть изображения, показываем превью, иначе кнопка
+                let imgs = [];
                 try {
                     const res = await fetch(`/api/folder?path=${encodeURIComponent(item.path)}`);
                     const folderData = await res.json();
-                    const imgs = folderData.contents.filter(c => !c.is_directory);
-                    if (imgs.length > 0) {
-                        const div = document.createElement('div');
-                        div.className = 'thumbnail';
-                        // Делаем превью папки перетаскиваемым
-                        div.setAttribute('draggable','true');
-                        div.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', item.path); e.dataTransfer.effectAllowed = 'copy'; });
-                        div.addEventListener('dragover', e => { e.preventDefault(); div.classList.add('drag-over'); });
-                        div.addEventListener('dragleave', e => { e.preventDefault(); div.classList.remove('drag-over'); });
-                        div.addEventListener('drop', e => { e.preventDefault(); div.classList.remove('drag-over'); const src = e.dataTransfer.getData('text/plain'); this.moveItem(src, item.path); });
-                        const img = document.createElement('img');
-                        img.src = `/api/image/preview?path=${encodeURIComponent(imgs[0].path)}&size=150`;
-                        img.alt = item.name;
-                        div.appendChild(img);
-                    
-                        div.addEventListener('click', () => this.navigateToFolder(item.path));
-                        this.folderContents.appendChild(div);
-                        continue;
-                    }
+                    imgs = folderData.contents.filter(c => !c.is_directory);
                 } catch {}
+                if (imgs.length > 0) {
+                    // Превью папки
+                    const div = document.createElement('div');
+                    div.className = 'thumbnail';
+                    div.setAttribute('draggable','true');
+                    div.addEventListener('click', () => this.navigateToFolder(item.path));
+                    const img = document.createElement('img');
+                    img.src = `/api/image/preview?path=${encodeURIComponent(imgs[0].path)}&size=150`;
+                    img.alt = '';
+                    div.appendChild(img);
+                    this.folderContents.appendChild(div);
+                } else {
+                    // Обычная папка без превью
+                    const button = document.createElement('button');
+                    button.className = 'folder-btn';
+                    button.textContent = item.name.replace(/^[^\s]+\s*/, '');
+                    button.addEventListener('click', () => this.navigateToFolder(item.path));
+                    this.folderContents.appendChild(button);
+                }
+                continue;
             }
+            // Изображение файла
             if (!item.is_directory && item.name.match(/\.(jpg|jpeg|png)$/i)) {
-                // Превью изображения
                 const div = document.createElement('div');
                 div.className = 'thumbnail';
-                // Делаем превью файла перетаскиваемым
                 div.setAttribute('draggable', 'true');
-                div.addEventListener('dragstart', e => {
-                    e.dataTransfer.setData('text/plain', item.path);
-                    e.dataTransfer.effectAllowed = 'move';
-                });
+                div.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', item.path); });
                 const img = document.createElement('img');
                 img.src = `/api/image/preview?path=${encodeURIComponent(item.path)}&size=150`;
-                img.alt = item.name;
-                const caption = document.createElement('div');
-                // Remove leading icon and space from caption
-                const displayName = item.name.replace(/^[^\s]+\s*/, '');
-                caption.textContent = displayName;
                 div.appendChild(img);
-                div.appendChild(caption);
                 this.folderContents.appendChild(div);
-            } else {
-                // Папки и другие файлы обрабатываются как раньше
-                const button = document.createElement('button');
-                button.className = item.name.includes('⬅️') ? 'folder-btn back' : 'folder-btn';
-                button.setAttribute('draggable', 'true');
-                button.addEventListener('dragstart', (e) => {
-                    e.dataTransfer.setData('text/plain', item.path);
-                    e.dataTransfer.effectAllowed = 'move';
-                });
-                if (item.is_directory) {
-                    button.addEventListener('dragover', (e) => { e.preventDefault(); button.classList.add('drag-over'); });
-                    button.addEventListener('dragleave', (e) => { e.preventDefault(); button.classList.remove('drag-over'); });
-                    button.addEventListener('drop', (e) => { e.preventDefault(); button.classList.remove('drag-over'); const src = e.dataTransfer.getData('text/plain'); this.moveItem(src, item.path); });
-                }
-                button.textContent = item.name;
-                if (item.is_directory) button.addEventListener('click', () => this.navigateToFolder(item.path));
-                this.folderContents.appendChild(button);
+                continue;
             }
+            // Другие файлы: просто кнопка
+            const button = document.createElement('button');
+            button.className = 'folder-btn';
+            button.textContent = item.name;
+            this.folderContents.appendChild(button);
         }
 
         // Добавляем кнопку "Добавить в очередь" если это не навигационная кнопка
