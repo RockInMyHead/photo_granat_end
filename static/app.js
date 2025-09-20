@@ -149,6 +149,27 @@ class PhotoClusterApp {
                     div.className = 'thumbnail';
                     div.setAttribute('draggable','true');
                     div.addEventListener('click', () => this.navigateToFolder(item.path));
+                    
+                    // Drag & Drop для папки
+                    div.addEventListener('dragstart', e => {
+                        e.dataTransfer.setData('text/plain', item.path);
+                        e.dataTransfer.effectAllowed = 'move';
+                    });
+                    div.addEventListener('dragover', e => {
+                        e.preventDefault();
+                        div.classList.add('drag-over');
+                    });
+                    div.addEventListener('dragleave', e => {
+                        e.preventDefault();
+                        div.classList.remove('drag-over');
+                    });
+                    div.addEventListener('drop', e => {
+                        e.preventDefault();
+                        div.classList.remove('drag-over');
+                        const src = e.dataTransfer.getData('text/plain');
+                        this.moveItem(src, item.path);
+                    });
+                    
                     const img = document.createElement('img');
                     img.src = `/api/image/preview?path=${encodeURIComponent(imgs[0].path)}&size=150`;
                     img.alt = item.name.replace('📂 ', '');
@@ -167,6 +188,28 @@ class PhotoClusterApp {
                     button.className = 'folder-btn';
                     button.textContent = item.name.replace('📂 ', '');
                     button.addEventListener('click', () => this.navigateToFolder(item.path));
+                    
+                    // Drag & Drop для обычной папки
+                    button.setAttribute('draggable', 'true');
+                    button.addEventListener('dragstart', e => {
+                        e.dataTransfer.setData('text/plain', item.path);
+                        e.dataTransfer.effectAllowed = 'move';
+                    });
+                    button.addEventListener('dragover', e => {
+                        e.preventDefault();
+                        button.classList.add('drag-over');
+                    });
+                    button.addEventListener('dragleave', e => {
+                        e.preventDefault();
+                        button.classList.remove('drag-over');
+                    });
+                    button.addEventListener('drop', e => {
+                        e.preventDefault();
+                        button.classList.remove('drag-over');
+                        const src = e.dataTransfer.getData('text/plain');
+                        this.moveItem(src, item.path);
+                    });
+                    
                     this.folderContents.appendChild(button);
                 }
                 continue;
@@ -176,7 +219,27 @@ class PhotoClusterApp {
                 const div = document.createElement('div');
                 div.className = 'thumbnail';
                 div.setAttribute('draggable', 'true');
-                div.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', item.path); });
+                
+                // Drag & Drop для изображения
+                div.addEventListener('dragstart', e => {
+                    e.dataTransfer.setData('text/plain', item.path);
+                    e.dataTransfer.effectAllowed = 'move';
+                });
+                div.addEventListener('dragover', e => {
+                    e.preventDefault();
+                    div.classList.add('drag-over');
+                });
+                div.addEventListener('dragleave', e => {
+                    e.preventDefault();
+                    div.classList.remove('drag-over');
+                });
+                div.addEventListener('drop', e => {
+                    e.preventDefault();
+                    div.classList.remove('drag-over');
+                    const src = e.dataTransfer.getData('text/plain');
+                    this.moveItem(src, item.path);
+                });
+                
                 const img = document.createElement('img');
                 img.src = `/api/image/preview?path=${encodeURIComponent(item.path)}&size=150`;
                 img.alt = item.name.replace('🖼 ', '');
