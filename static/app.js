@@ -151,28 +151,43 @@ class PhotoClusterApp {
                     div.addEventListener('click', () => this.navigateToFolder(item.path));
                     const img = document.createElement('img');
                     img.src = `/api/image/preview?path=${encodeURIComponent(imgs[0].path)}&size=150`;
-                    img.alt = '';
+                    img.alt = item.name.replace('📂 ', '');
                     div.appendChild(img);
+                    
+                    // Добавляем подпись с названием папки
+                    const caption = document.createElement('div');
+                    caption.className = 'thumbnail-caption';
+                    caption.textContent = item.name.replace('📂 ', '');
+                    div.appendChild(caption);
+                    
                     this.folderContents.appendChild(div);
                 } else {
                     // Обычная папка без превью
                     const button = document.createElement('button');
                     button.className = 'folder-btn';
-                    button.textContent = item.name.replace(/^[^\s]+\s*/, '');
+                    button.textContent = item.name.replace('📂 ', '');
                     button.addEventListener('click', () => this.navigateToFolder(item.path));
                     this.folderContents.appendChild(button);
                 }
                 continue;
             }
             // Изображение файла
-            if (!item.is_directory && item.name.match(/\.(jpg|jpeg|png)$/i)) {
+            if (!item.is_directory && item.name.match(/\.(jpg|jpeg|png|bmp|tif|tiff|webp)$/i)) {
                 const div = document.createElement('div');
                 div.className = 'thumbnail';
                 div.setAttribute('draggable', 'true');
                 div.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', item.path); });
                 const img = document.createElement('img');
                 img.src = `/api/image/preview?path=${encodeURIComponent(item.path)}&size=150`;
+                img.alt = item.name.replace('🖼 ', '');
                 div.appendChild(img);
+                
+                // Добавляем подпись с названием файла
+                const caption = document.createElement('div');
+                caption.className = 'thumbnail-caption';
+                caption.textContent = item.name.replace('🖼 ', '');
+                div.appendChild(caption);
+                
                 this.folderContents.appendChild(div);
                 continue;
             }
