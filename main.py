@@ -171,12 +171,12 @@ async def process_folder_task(task_id: str, folder_path: str):
                             pass
             
             app_state["current_tasks"][task_id]["message"] = "Кластеризация лиц..."
-            plan = build_plan_live(path, progress_callback=lambda text, percent=None: progress_callback(text, percent))
+            plan = build_plan_live(path, progress_callback=progress_callback)
             
             app_state["current_tasks"][task_id]["message"] = "Распределение по папкам..."
             app_state["current_tasks"][task_id]["progress"] = 90
             
-            moved, copied, _ = distribute_to_folders(plan, path, progress_callback=lambda text, percent=None: progress_callback(text, percent))
+            moved, copied, _ = distribute_to_folders(plan, path, progress_callback=progress_callback)
             
             result = ProcessingResult(
                 moved=moved,
