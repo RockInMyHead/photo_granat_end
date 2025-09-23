@@ -299,14 +299,16 @@ def distribute_to_folders(plan: dict, base_dir: Path, cluster_start: int = 1, pr
     print(f"📦 Перемещено: {moved}, скопировано: {copied}")
     return moved, copied, cluster_start + len(used_clusters)
 
-def process_group_folder(group_dir: Path):
+def process_group_folder(group_dir: Path, progress_callback=None):
     cluster_counter = 1
-    for subfolder in sorted(group_dir.iterdir()):
-        if not subfolder.is_dir():
-            continue
-        if "общие" in subfolder.name.lower():
-            continue
-
+    subfolders = [f for f in sorted(group_dir.iterdir()) if f.is_dir() and "общие" not in f.name.lower()]
+    total_subfolders = len(subfolders)
+    
+    for i, subfolder in enumerate(subfolders):
+        if progress_callback:
+            percent = 10 + int((i + 1) / max(total_subfolders, 1) * 80)
+            progress_callback(f"🔍 Обрабатывается подпапка: {subfolder.name} ({i+1}/{total_subfolders})", percent)
+            
         print(f"🔍 Обрабатывается подпапка: {subfolder}")
         plan = build_plan_live(subfolder)
         print(f"📊 Кластеров: {len(plan.get('clusters', {}))}, файлов: {len(plan.get('plan', []))}")

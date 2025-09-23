@@ -143,13 +143,35 @@ async def process_folder_task(task_id: str, folder_path: str):
         if not path.exists():
             raise Exception("Путь не существует")
         
-        # Определяем тип обработки
-        has_subdirs = any(p.is_dir() and "общие" not in str(p).lower() for p in path.iterdir())
+        # Определяем тип обработки - групповая только если есть подпапки с изображениями
+        subdirs_with_images = []
+        for p in path.iterdir():
+            if p.is_dir() and "общие" not in str(p).lower():
+                # Проверяем есть ли изображения в подпапке
+                has_images = any(f.suffix.lower() in IMG_EXTS for f in p.rglob("*") if f.is_file())
+                if has_images:
+                    subdirs_with_images.append(p)
         
-        if has_subdirs:
+        if len(subdirs_with_images) > 1:
             # Групповая обработка
+            def group_progress_callback(progress_text: str, percent: int = None):
+                if task_id in app_state["current_tasks"]:
+                    app_state["current_tasks"][task_id]["message"] = progress_text
+                    if percent is not None:
+                        app_state["current_tasks"][task_id]["progress"] = percent
+                    else:
+                        try:
+                            if "%" in progress_text:
+                                match = re.search(r'(\d+)%', progress_text)
+                                if match:
+                                    app_state["current_tasks"][task_id]["progress"] = int(match.group(1))
+                        except:
+                            pass
+            
             app_state["current_tasks"][task_id]["message"] = "Групповая обработка папок..."
-            process_group_folder(path)
+            app_state["current_tasks"][task_id]["progress"] = 10
+            
+            process_group_folder(path, progress_callback=group_progress_callback)
             result = ProcessingResult(
                 moved=0, copied=0, clusters_count=0,
                 unreadable_count=0, no_faces_count=0,
@@ -163,31 +185,23 @@ async def process_folder_task(task_id: str, folder_path: str):
                     # Используем переданный процент или пытаемся извлечь из текста
                     if percent is not None:
                         app_state["current_tasks"][task_id]["progress"] = percent
-                        print(f"DEBUG: Обновлен прогресс для {task_id}: {percent}% - {progress_text}")
                     else:
                         try:
                             if "%" in progress_text:
                                 # Ищем число перед знаком %
                                 match = re.search(r'(\d+)%', progress_text)
                                 if match:
-                                    extracted_percent = int(match.group(1))
-                                    app_state["current_tasks"][task_id]["progress"] = extracted_percent
-                                    print(f"DEBUG: Извлечен прогресс для {task_id}: {extracted_percent}% - {progress_text}")
+                                    app_state["current_tasks"][task_id]["progress"] = int(match.group(1))
                         except:
                             pass
             
             app_state["current_tasks"][task_id]["message"] = "Кластеризация лиц..."
-            app_state["current_tasks"][task_id]["progress"] = 10
             plan = build_plan_live(path, progress_callback=progress_callback)
             
             app_state["current_tasks"][task_id]["message"] = "Распределение по папкам..."
-            app_state["current_tasks"][task_id]["progress"] = 80
+            app_state["current_tasks"][task_id]["progress"] = 90
             
             moved, copied, next_cluster_id = distribute_to_folders(plan, path, progress_callback=progress_callback)
-            
-            # Отладочная информация
-            print(f"DEBUG: Результат обработки - moved: {moved}, copied: {copied}")
-            print(f"DEBUG: План содержит - clusters: {len(plan.get('clusters', {}))}, unreadable: {len(plan.get('unreadable', []))}, no_faces: {len(plan.get('no_faces', []))}")
             
             result = ProcessingResult(
                 moved=moved,
