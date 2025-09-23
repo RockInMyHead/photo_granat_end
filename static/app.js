@@ -393,9 +393,11 @@ class PhotoClusterApp {
             });
 
             const result = await response.json();
+            console.log('Результат обработки:', result); // Отладочная информация
             this.showNotification(result.message, 'success');
             
             await this.loadQueue();
+            await this.loadTasks(); // Загружаем задачи для отображения прогресса
             
         } catch (error) {
             this.showNotification('Ошибка запуска обработки: ' + error.message, 'error');
@@ -424,6 +426,8 @@ class PhotoClusterApp {
         try {
             const response = await fetch('/api/tasks');
             const data = await response.json();
+            
+            console.log('Загружены задачи:', data.tasks); // Отладочная информация
             
             // Обновляем только если есть изменения
             const newTasksStr = JSON.stringify(data.tasks);
