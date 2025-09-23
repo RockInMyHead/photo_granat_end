@@ -163,23 +163,31 @@ async def process_folder_task(task_id: str, folder_path: str):
                     # Используем переданный процент или пытаемся извлечь из текста
                     if percent is not None:
                         app_state["current_tasks"][task_id]["progress"] = percent
+                        print(f"DEBUG: Обновлен прогресс для {task_id}: {percent}% - {progress_text}")
                     else:
                         try:
                             if "%" in progress_text:
                                 # Ищем число перед знаком %
                                 match = re.search(r'(\d+)%', progress_text)
                                 if match:
-                                    app_state["current_tasks"][task_id]["progress"] = int(match.group(1))
+                                    extracted_percent = int(match.group(1))
+                                    app_state["current_tasks"][task_id]["progress"] = extracted_percent
+                                    print(f"DEBUG: Извлечен прогресс для {task_id}: {extracted_percent}% - {progress_text}")
                         except:
                             pass
             
             app_state["current_tasks"][task_id]["message"] = "Кластеризация лиц..."
+            app_state["current_tasks"][task_id]["progress"] = 10
             plan = build_plan_live(path, progress_callback=progress_callback)
             
             app_state["current_tasks"][task_id]["message"] = "Распределение по папкам..."
-            app_state["current_tasks"][task_id]["progress"] = 90
+            app_state["current_tasks"][task_id]["progress"] = 80
             
             moved, copied, next_cluster_id = distribute_to_folders(plan, path, progress_callback=progress_callback)
+            
+            # Отладочная информация
+            print(f"DEBUG: Результат обработки - moved: {moved}, copied: {copied}")
+            print(f"DEBUG: План содержит - clusters: {len(plan.get('clusters', {}))}, unreadable: {len(plan.get('unreadable', []))}, no_faces: {len(plan.get('no_faces', []))}")
             
             result = ProcessingResult(
                 moved=moved,
