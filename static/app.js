@@ -21,6 +21,13 @@ class PhotoClusterApp {
         this.clearBtn = document.getElementById('clearBtn');
         this.addQueueBtn = document.getElementById('addQueueBtn');
         this.tasksList = document.getElementById('tasksList');
+        
+        // Проверяем, что все элементы найдены
+        if (!this.tasksList) {
+            console.error('Элемент tasksList не найден!');
+        } else {
+            console.log('Элемент tasksList найден:', this.tasksList);
+        }
     }
 
     setupEventListeners() {
@@ -442,6 +449,13 @@ class PhotoClusterApp {
     }
 
     displayTasks(tasks) {
+        console.log('displayTasks вызвана с задачами:', tasks);
+        
+        if (!this.tasksList) {
+            console.error('tasksList не найден в displayTasks!');
+            return;
+        }
+        
         if (tasks.length === 0) {
             this.tasksList.innerHTML = `
                 <p style="text-align: center; color: #666; padding: 40px 0;">
