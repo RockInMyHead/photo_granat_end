@@ -1,5 +1,23 @@
 const API_BASE = 'http://localhost:8001';
 
+// Проверяем доступность API при загрузке
+async function checkAPIConnection() {
+    try {
+        console.log('Проверяем подключение к API:', API_BASE);
+        const response = await fetch(API_BASE + '/api/tasks');
+        if (response.ok) {
+            console.log('✅ API доступен');
+            return true;
+        } else {
+            console.error('❌ API недоступен, статус:', response.status);
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ Ошибка подключения к API:', error);
+        return false;
+    }
+}
+
 class PhotoClusterApp {
     constructor() {
         this.currentPath = '';
@@ -11,10 +29,15 @@ class PhotoClusterApp {
         this.loadInitialData();
         this.startTaskPolling();
         
-        // Принудительно загружаем задачи при инициализации
-        setTimeout(() => {
-            console.log('Принудительно загружаем задачи...');
-            this.loadTasks();
+        // Проверяем API и загружаем задачи
+        setTimeout(async () => {
+            const apiAvailable = await checkAPIConnection();
+            if (apiAvailable) {
+                console.log('Принудительно загружаем задачи...');
+                this.loadTasks();
+            } else {
+                console.error('API недоступен, задачи не будут загружены');
+            }
         }, 1000);
     }
 
