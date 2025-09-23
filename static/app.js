@@ -1,3 +1,5 @@
+const API_BASE = 'http://localhost:8001';
+
 class PhotoClusterApp {
     constructor() {
         this.currentPath = '';
@@ -89,7 +91,7 @@ class PhotoClusterApp {
 
     async loadDrives() {
         try {
-            const response = await fetch('/api/drives');
+            const response = await fetch(API_BASE + '/api/drives');
             const drives = await response.json();
             
             this.driveButtons.innerHTML = '';
@@ -108,7 +110,7 @@ class PhotoClusterApp {
     async navigateToFolder(path) {
         try {
             this.currentPath = path;
-            const response = await fetch(`/api/folder?path=${encodeURIComponent(path)}`);
+            const response = await fetch(`${API_BASE}/api/folder?path=${encodeURIComponent(path)}`);
             
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -155,7 +157,7 @@ class PhotoClusterApp {
                 // Папка: если есть изображения, показываем превью, иначе кнопка
                 let imgs = [];
                 try {
-                    const res = await fetch(`/api/folder?path=${encodeURIComponent(item.path)}`);
+                    const res = await fetch(`${API_BASE}/api/folder?path=${encodeURIComponent(item.path)}`);
                     const folderData = await res.json();
                     imgs = folderData.contents.filter(c => !c.is_directory);
                 } catch {}
@@ -187,7 +189,7 @@ class PhotoClusterApp {
                     });
                     
                     const img = document.createElement('img');
-                    img.src = `/api/image/preview?path=${encodeURIComponent(imgs[0].path)}&size=150`;
+                    img.src = `${API_BASE}/api/image/preview?path=${encodeURIComponent(imgs[0].path)}&size=150`;
                     img.alt = item.name.replace('📂 ', '');
                     div.appendChild(img);
                     
@@ -257,7 +259,7 @@ class PhotoClusterApp {
                 });
                 
                 const img = document.createElement('img');
-                img.src = `/api/image/preview?path=${encodeURIComponent(item.path)}&size=150`;
+                img.src = `${API_BASE}/api/image/preview?path=${encodeURIComponent(item.path)}&size=150`;
                 img.alt = item.name.replace('🖼 ', '');
                 div.appendChild(img);
                 
@@ -307,7 +309,7 @@ class PhotoClusterApp {
         }
 
         try {
-            const response = await fetch(`/api/upload?path=${encodeURIComponent(this.currentPath)}`, {
+            const response = await fetch(API_BASE + `/api/upload?path=${encodeURIComponent(this.currentPath)}`, {
                 method: 'POST',
                 body: formData
             });
@@ -345,7 +347,7 @@ class PhotoClusterApp {
 
     async addToQueue(path) {
         try {
-            const response = await fetch('/api/queue/add', {
+            const response = await fetch(API_BASE + '/api/queue/add', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -364,7 +366,7 @@ class PhotoClusterApp {
 
     async loadQueue() {
         try {
-            const response = await fetch('/api/queue');
+            const response = await fetch(API_BASE + '/api/queue');
             const data = await response.json();
             this.queue = data.queue;
             this.displayQueue();
@@ -404,7 +406,7 @@ class PhotoClusterApp {
             this.processBtn.disabled = true;
             this.processBtn.innerHTML = '<div class="loading"></div> Запуск...';
 
-            const response = await fetch('/api/process', {
+            const response = await fetch(API_BASE + '/api/process', {
                 method: 'POST'
             });
 
@@ -425,7 +427,7 @@ class PhotoClusterApp {
 
     async clearQueue() {
         try {
-            const response = await fetch('/api/queue', {
+            const response = await fetch(API_BASE + '/api/queue', {
                 method: 'DELETE'
             });
 
@@ -440,7 +442,7 @@ class PhotoClusterApp {
 
     async loadTasks() {
         try {
-            const response = await fetch('/api/tasks');
+            const response = await fetch(API_BASE + '/api/tasks');
             const data = await response.json();
             
             console.log('Загружены задачи:', data.tasks); // Отладочная информация
@@ -581,7 +583,7 @@ class PhotoClusterApp {
 
     async moveItem(src, dest) {
         try {
-            const response = await fetch('/api/move', {
+            const response = await fetch(API_BASE + '/api/move', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ src: src, dest: dest })
