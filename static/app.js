@@ -1,41 +1,3 @@
-// Автоматическое определение API_BASE
-function getAPIBase() {
-    // Если мы на том же хосте, что и сервер
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        return 'http://localhost:8001';
-    }
-    
-    // Если мы на другом хосте, используем тот же хост, но порт 8001
-    // Но если порт 8000, то API на 8001
-    if (window.location.port === '8000') {
-        return `http://${window.location.hostname}:8001`;
-    }
-    
-    // Иначе используем тот же хост и порт
-    return `http://${window.location.hostname}:${window.location.port}`;
-}
-
-const API_BASE = getAPIBase();
-console.log('Используем API_BASE:', API_BASE);
-
-// Проверяем доступность API при загрузке
-async function checkAPIConnection() {
-    try {
-        console.log('Проверяем подключение к API:', API_BASE);
-        const response = await fetch(API_BASE + '/api/tasks');
-        if (response.ok) {
-            console.log('✅ API доступен');
-            return true;
-        } else {
-            console.error('❌ API недоступен, статус:', response.status);
-            return false;
-        }
-    } catch (error) {
-        console.error('❌ Ошибка подключения к API:', error);
-        return false;
-    }
-}
-
 class PhotoClusterApp {
     constructor() {
         this.currentPath = '';
@@ -46,17 +8,6 @@ class PhotoClusterApp {
         this.setupEventListeners();
         this.loadInitialData();
         this.startTaskPolling();
-        
-        // Проверяем API и загружаем задачи
-        setTimeout(async () => {
-            const apiAvailable = await checkAPIConnection();
-            if (apiAvailable) {
-                console.log('Принудительно загружаем задачи...');
-                this.loadTasks();
-            } else {
-                console.error('API недоступен, задачи не будут загружены');
-            }
-        }, 1000);
     }
 
     initializeElements() {
@@ -70,13 +21,25 @@ class PhotoClusterApp {
         this.clearBtn = document.getElementById('clearBtn');
         this.addQueueBtn = document.getElementById('addQueueBtn');
         this.tasksList = document.getElementById('tasksList');
-        this.refreshTasksBtn = document.getElementById('refreshTasksBtn');
         
-        // Проверяем, что все элементы найдены
-        if (!this.tasksList) {
-            console.error('Элемент tasksList не найден!');
-        } else {
-            console.log('Элемент tasksList найден:', this.tasksList);
+        // Проверяем что все элементы найдены
+        const elements = {
+            driveButtons: this.driveButtons,
+            currentPathEl: this.currentPathEl,
+            folderContents: this.folderContents,
+            uploadZone: this.uploadZone,
+            fileInput: this.fileInput,
+            queueList: this.queueList,
+            processBtn: this.processBtn,
+            clearBtn: this.clearBtn,
+            addQueueBtn: this.addQueueBtn,
+            tasksList: this.tasksList
+        };
+        
+        for (const [name, element] of Object.entries(elements)) {
+            if (!element) {
+                console.error(`Element not found: ${name}`);
+            }
         }
     }
 
@@ -101,8 +64,6 @@ class PhotoClusterApp {
         this.clearBtn.addEventListener('click', () => this.clearQueue());
         // Кнопка добавить в очередь
         this.addQueueBtn.addEventListener('click', () => this.addToQueue(this.currentPath));
-        // Кнопка обновления задач
-        this.refreshTasksBtn.addEventListener('click', () => this.loadTasks());
 
         // Загрузка файлов
         this.fileInput.addEventListener('change', (e) => this.handleFileUpload(e.target.files));
@@ -132,7 +93,7 @@ class PhotoClusterApp {
 
     async loadDrives() {
         try {
-            const response = await fetch(API_BASE + '/api/drives');
+            const response = await fetch('/api/drives');
             const drives = await response.json();
             
             this.driveButtons.innerHTML = '';
@@ -151,7 +112,7 @@ class PhotoClusterApp {
     async navigateToFolder(path) {
         try {
             this.currentPath = path;
-            const response = await fetch(`${API_BASE}/api/folder?path=${encodeURIComponent(path)}`);
+            const response = await fetch(`/api/folder?path=${encodeURIComponent(path)}`);
             
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -198,7 +159,7 @@ class PhotoClusterApp {
                 // Папка: если есть изображения, показываем превью, иначе кнопка
                 let imgs = [];
                 try {
-                    const res = await fetch(`${API_BASE}/api/folder?path=${encodeURIComponent(item.path)}`);
+                    const res = await fetch(`/api/folder?path=${encodeURIComponent(item.path)}`);
                     const folderData = await res.json();
                     imgs = folderData.contents.filter(c => !c.is_directory);
                 } catch {}
@@ -230,7 +191,7 @@ class PhotoClusterApp {
                     });
                     
                     const img = document.createElement('img');
-                    img.src = `${API_BASE}/api/image/preview?path=${encodeURIComponent(imgs[0].path)}&size=150`;
+                    img.src = `/api/image/preview?path=${encodeURIComponent(imgs[0].path)}&size=150`;
                     img.alt = item.name.replace('📂 ', '');
                     div.appendChild(img);
                     
@@ -300,7 +261,7 @@ class PhotoClusterApp {
                 });
                 
                 const img = document.createElement('img');
-                img.src = `${API_BASE}/api/image/preview?path=${encodeURIComponent(item.path)}&size=150`;
+                img.src = `/api/image/preview?path=${encodeURIComponent(item.path)}&size=150`;
                 img.alt = item.name.replace('🖼 ', '');
                 div.appendChild(img);
                 
@@ -350,7 +311,7 @@ class PhotoClusterApp {
         }
 
         try {
-            const response = await fetch(API_BASE + `/api/upload?path=${encodeURIComponent(this.currentPath)}`, {
+            const response = await fetch(`/api/upload?path=${encodeURIComponent(this.currentPath)}`, {
                 method: 'POST',
                 body: formData
             });
@@ -388,7 +349,7 @@ class PhotoClusterApp {
 
     async addToQueue(path) {
         try {
-            const response = await fetch(API_BASE + '/api/queue/add', {
+            const response = await fetch('/api/queue/add', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -407,7 +368,7 @@ class PhotoClusterApp {
 
     async loadQueue() {
         try {
-            const response = await fetch(API_BASE + '/api/queue');
+            const response = await fetch('/api/queue');
             const data = await response.json();
             this.queue = data.queue;
             this.displayQueue();
@@ -447,16 +408,14 @@ class PhotoClusterApp {
             this.processBtn.disabled = true;
             this.processBtn.innerHTML = '<div class="loading"></div> Запуск...';
 
-            const response = await fetch(API_BASE + '/api/process', {
+            const response = await fetch('/api/process', {
                 method: 'POST'
             });
 
             const result = await response.json();
-            console.log('Результат обработки:', result); // Отладочная информация
             this.showNotification(result.message, 'success');
             
             await this.loadQueue();
-            await this.loadTasks(); // Загружаем задачи для отображения прогресса
             
         } catch (error) {
             this.showNotification('Ошибка запуска обработки: ' + error.message, 'error');
@@ -468,7 +427,7 @@ class PhotoClusterApp {
 
     async clearQueue() {
         try {
-            const response = await fetch(API_BASE + '/api/queue', {
+            const response = await fetch('/api/queue', {
                 method: 'DELETE'
             });
 
@@ -483,10 +442,8 @@ class PhotoClusterApp {
 
     async loadTasks() {
         try {
-            const response = await fetch(API_BASE + '/api/tasks');
+            const response = await fetch('/api/tasks');
             const data = await response.json();
-            
-            console.log('Загружены задачи:', data.tasks); // Отладочная информация
             
             // Обновляем только если есть изменения
             const newTasksStr = JSON.stringify(data.tasks);
@@ -501,10 +458,8 @@ class PhotoClusterApp {
     }
 
     displayTasks(tasks) {
-        console.log('displayTasks вызвана с задачами:', tasks);
-        
         if (!this.tasksList) {
-            console.error('tasksList не найден в displayTasks!');
+            console.error('tasksList element not found!');
             return;
         }
         
@@ -624,7 +579,7 @@ class PhotoClusterApp {
 
     async moveItem(src, dest) {
         try {
-            const response = await fetch(API_BASE + '/api/move', {
+            const response = await fetch('/api/move', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ src: src, dest: dest })
