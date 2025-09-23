@@ -1,4 +1,16 @@
-const API_BASE = 'http://localhost:8001';
+// Автоматическое определение API_BASE
+function getAPIBase() {
+    // Если мы на том же хосте, что и сервер
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:8001';
+    }
+    
+    // Если мы на другом хосте, используем тот же хост, но порт 8001
+    return `http://${window.location.hostname}:8001`;
+}
+
+const API_BASE = getAPIBase();
+console.log('Используем API_BASE:', API_BASE);
 
 // Проверяем доступность API при загрузке
 async function checkAPIConnection() {
