@@ -8,6 +8,12 @@ class PhotoClusterApp {
         this.setupEventListeners();
         this.loadInitialData();
         this.startTaskPolling();
+        
+        // Принудительно загружаем задачи при инициализации
+        setTimeout(() => {
+            console.log('Принудительно загружаем задачи...');
+            this.loadTasks();
+        }, 1000);
     }
 
     initializeElements() {
@@ -21,6 +27,7 @@ class PhotoClusterApp {
         this.clearBtn = document.getElementById('clearBtn');
         this.addQueueBtn = document.getElementById('addQueueBtn');
         this.tasksList = document.getElementById('tasksList');
+        this.refreshTasksBtn = document.getElementById('refreshTasksBtn');
         
         // Проверяем, что все элементы найдены
         if (!this.tasksList) {
@@ -51,6 +58,8 @@ class PhotoClusterApp {
         this.clearBtn.addEventListener('click', () => this.clearQueue());
         // Кнопка добавить в очередь
         this.addQueueBtn.addEventListener('click', () => this.addToQueue(this.currentPath));
+        // Кнопка обновления задач
+        this.refreshTasksBtn.addEventListener('click', () => this.loadTasks());
 
         // Загрузка файлов
         this.fileInput.addEventListener('change', (e) => this.handleFileUpload(e.target.files));
