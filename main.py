@@ -15,6 +15,7 @@ from PIL import Image, ImageOps
 import uuid
 import time
 import tempfile
+import re
 from io import BytesIO
 
 from cluster import build_plan_live, distribute_to_folders, process_group_folder, IMG_EXTS
@@ -165,8 +166,10 @@ async def process_folder_task(task_id: str, folder_path: str):
                     else:
                         try:
                             if "%" in progress_text:
-                                percent_str = progress_text.split("%")[0].split()[-1]
-                                app_state["current_tasks"][task_id]["progress"] = int(percent_str)
+                                # Ищем число перед знаком %
+                                match = re.search(r'(\d+)%', progress_text)
+                                if match:
+                                    app_state["current_tasks"][task_id]["progress"] = int(match.group(1))
                         except:
                             pass
             
@@ -176,7 +179,7 @@ async def process_folder_task(task_id: str, folder_path: str):
             app_state["current_tasks"][task_id]["message"] = "Распределение по папкам..."
             app_state["current_tasks"][task_id]["progress"] = 90
             
-            moved, copied, _ = distribute_to_folders(plan, path, progress_callback=progress_callback)
+            moved, copied, next_cluster_id = distribute_to_folders(plan, path, progress_callback=progress_callback)
             
             result = ProcessingResult(
                 moved=moved,

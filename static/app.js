@@ -471,19 +471,19 @@ class PhotoClusterApp {
                 resultHtml = `
                     <div class="result-stats">
                         <div class="stat-item">
-                            <div class="stat-value">${task.result.moved}</div>
+                            <div class="stat-value moved">${task.result.moved}</div>
                             <div class="stat-label">Перемещено</div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-value">${task.result.copied}</div>
+                            <div class="stat-value copied">${task.result.copied}</div>
                             <div class="stat-label">Скопировано</div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-value">${task.result.clusters_count}</div>
+                            <div class="stat-value clusters">${task.result.clusters_count}</div>
                             <div class="stat-label">Кластеров</div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-value">${task.result.no_faces_count}</div>
+                            <div class="stat-value no-faces">${task.result.no_faces_count}</div>
                             <div class="stat-label">Без лиц</div>
                         </div>
                     </div>
@@ -492,12 +492,13 @@ class PhotoClusterApp {
 
             let progressHtml = '';
             if (task.status === 'running' || task.status === 'pending') {
+                const progress = task.progress || 0;
                 progressHtml = `
                     <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${task.progress}%"></div>
+                        <div class="progress-fill" style="width: ${progress}%"></div>
                     </div>
-                    <div class="progress-text">${task.progress}%</div>
-                    <div class="progress-details">${task.message}</div>
+                    <div class="progress-text">${progress}%</div>
+                    <div class="progress-details">${task.message || 'Подготовка...'}</div>
                 `;
             }
 

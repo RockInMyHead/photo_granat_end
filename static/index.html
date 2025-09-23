@@ -392,16 +392,45 @@
 
         .stat-item {
             background: white;
-            padding: 10px;
-            border-radius: 6px;
+            padding: 15px 10px;
+            border-radius: 8px;
             text-align: center;
             border: 1px solid #e9ecef;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: transform 0.2s ease;
+        }
+
+        .stat-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
 
         .stat-value {
-            font-size: 1.5rem;
+            font-size: 1.8rem;
             font-weight: bold;
             color: #667eea;
+            animation: countUp 1.5s ease-out;
+        }
+
+        .stat-value.moved {
+            color: #28a745;
+        }
+
+        .stat-value.copied {
+            color: #17a2b8;
+        }
+
+        .stat-value.clusters {
+            color: #fd7e14;
+        }
+
+        .stat-value.no-faces {
+            color: #6c757d;
+        }
+
+        @keyframes countUp {
+            from { opacity: 0; transform: scale(0.5) translateY(20px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
         }
 
         .stat-label {
