@@ -6,7 +6,13 @@ function getAPIBase() {
     }
     
     // Если мы на другом хосте, используем тот же хост, но порт 8001
-    return `http://${window.location.hostname}:8001`;
+    // Но если порт 8000, то API на 8001
+    if (window.location.port === '8000') {
+        return `http://${window.location.hostname}:8001`;
+    }
+    
+    // Иначе используем тот же хост и порт
+    return `http://${window.location.hostname}:${window.location.port}`;
 }
 
 const API_BASE = getAPIBase();
