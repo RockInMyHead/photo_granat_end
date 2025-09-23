@@ -1,6 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse, Response, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -402,6 +402,17 @@ async def zip_folder(path: str):
     shutil.make_archive(str(zip_path.with_suffix('')), 'zip', root_dir=folder)
     # Отдает файл для скачивания
     return FileResponse(str(zip_path), media_type="application/zip", filename=f"{folder.name}.zip")
+
+# Add SSE endpoint for streaming tasks
+@app.get("/api/stream/tasks")
+async def stream_tasks():
+    """Stream all task updates via Server-Sent Events"""
+    async def event_generator():
+        while True:
+            data = {"tasks": list(app_state["current_tasks"].values())}
+            yield f"data: {json.dumps(data)}\n\n"
+            await asyncio.sleep(1)
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 # Статические файлы
 app.mount("/static", StaticFiles(directory="static"), name="static")

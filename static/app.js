@@ -442,39 +442,28 @@ class PhotoClusterApp {
 
     async loadTasks() {
         try {
-            console.log('🔄 Loading tasks...');
             const response = await fetch('/api/tasks');
             const data = await response.json();
-            
-            console.log('📊 Tasks API response:', data);
-            console.log('📋 Tasks count:', data.tasks?.length || 0);
             
             // Обновляем только если есть изменения
             const newTasksStr = JSON.stringify(data.tasks);
             if (this.lastTasksStr !== newTasksStr) {
-                console.log('🔄 Tasks changed, updating display...');
                 this.lastTasksStr = newTasksStr;
                 this.displayTasks(data.tasks);
-            } else {
-                console.log('📝 No changes in tasks');
             }
             
         } catch (error) {
-            console.error('❌ Ошибка загрузки задач:', error);
+            console.error('Ошибка загрузки задач:', error);
         }
     }
 
     displayTasks(tasks) {
-        console.log('🎯 displayTasks called with:', tasks);
-        console.log('🔍 this.tasksList:', this.tasksList);
-        
         if (!this.tasksList) {
-            console.error('❌ tasksList element not found!');
+            console.error('tasksList element not found!');
             return;
         }
         
         if (tasks.length === 0) {
-            console.log('📝 No tasks to display');
             this.tasksList.innerHTML = `
                 <p style="text-align: center; color: #666; padding: 40px 0;">
                     Задач пока нет
@@ -482,8 +471,6 @@ class PhotoClusterApp {
             `;
             return;
         }
-        
-        console.log('🎨 Rendering', tasks.length, 'tasks...');
 
         this.tasksList.innerHTML = '';
         
@@ -555,10 +542,23 @@ class PhotoClusterApp {
     }
 
     startTaskPolling() {
-        // Автоматическое обновление задач каждые 2 секунды
-        setInterval(() => {
-            this.loadTasks();
-        }, 2000);
+        // Stream task updates via Server-Sent Events
+        if (this.eventSource) {
+            this.eventSource.close();
+        }
+        this.eventSource = new EventSource('/api/stream/tasks');
+        this.eventSource.onmessage = (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                this.displayTasks(data.tasks);
+            } catch (err) {
+                console.error('Error parsing SSE data:', err);
+            }
+        };
+        this.eventSource.onerror = (err) => {
+            console.error('SSE connection error:', err);
+            // Optionally retry or fallback
+        };
     }
 
     showNotification(message, type = 'success') {
