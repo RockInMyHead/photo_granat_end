@@ -213,7 +213,7 @@ class PhotoClusterApp {
                     
                     // Проверяем, является ли папка исключаемой
                     const folderName = item.name.replace('📂 ', '');
-                    const excludedNames = ["общие", "common", "shared", "все", "all", "mixed", "смешанные"];
+                    const excludedNames = ["общие", "общая", "common", "shared", "все", "all", "mixed", "смешанные"];
                     const folderNameLower = folderName.toLowerCase();
                     
                     let isExcluded = false;
@@ -376,7 +376,7 @@ class PhotoClusterApp {
 
     async addToQueue(path) {
         // Проверяем, что папка не содержит исключаемые названия
-        const excludedNames = ["общие", "common", "shared", "все", "all", "mixed", "смешанные"];
+        const excludedNames = ["общие", "общая", "common", "shared", "все", "all", "mixed", "смешанные"];
         const pathLower = path.toLowerCase();
         
         for (const excludedName of excludedNames) {

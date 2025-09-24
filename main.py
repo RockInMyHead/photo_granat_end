@@ -172,7 +172,7 @@ async def process_folder_task(task_id: str, folder_path: str):
             raise Exception("Путь не существует")
         
         # Проверяем, что папка не содержит исключаемые названия
-        excluded_names = ["общие", "common", "shared", "все", "all", "mixed", "смешанные"]
+        excluded_names = ["общие", "общая", "common", "shared", "все", "all", "mixed", "смешанные"]
         folder_name_lower = str(path).lower()
         for excluded_name in excluded_names:
             if excluded_name in folder_name_lower:
@@ -356,7 +356,7 @@ async def get_queue():
 async def add_to_queue(item: QueueItem):
     """Добавить папку в очередь"""
     # Проверяем, что папка не содержит исключаемые названия
-    excluded_names = ["общие", "common", "shared", "все", "all", "mixed", "смешанные"]
+    excluded_names = ["общие", "общая", "common", "shared", "все", "all", "mixed", "смешанные"]
     folder_name_lower = str(item.path).lower()
     for excluded_name in excluded_names:
         if excluded_name in folder_name_lower:
