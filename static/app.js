@@ -211,12 +211,25 @@ class PhotoClusterApp {
                     const button = document.createElement('button');
                     button.className = 'folder-btn';
                     
-                    // Проверяем, является ли папка "общие"
+                    // Проверяем, является ли папка исключаемой
                     const folderName = item.name.replace('📂 ', '');
-                    if (folderName.toLowerCase().includes('общие')) {
+                    const excludedNames = ["общие", "common", "shared", "все", "all", "mixed", "смешанные"];
+                    const folderNameLower = folderName.toLowerCase();
+                    
+                    let isExcluded = false;
+                    let excludedName = '';
+                    for (const name of excludedNames) {
+                        if (folderNameLower.includes(name)) {
+                            isExcluded = true;
+                            excludedName = name;
+                            break;
+                        }
+                    }
+                    
+                    if (isExcluded) {
                         button.className += ' disabled';
                         button.textContent = folderName + ' (не обрабатывается)';
-                        button.title = 'Папки "общие" не обрабатываются';
+                        button.title = `Папки с названием "${excludedName}" не обрабатываются`;
                         button.disabled = true;
                     } else {
                         button.textContent = folderName;
@@ -362,10 +375,15 @@ class PhotoClusterApp {
     }
 
     async addToQueue(path) {
-        // Проверяем, что папка не содержит "общие" в названии
-        if (path.toLowerCase().includes('общие')) {
-            this.showNotification('Папки "общие" не обрабатываются', 'error');
-            return;
+        // Проверяем, что папка не содержит исключаемые названия
+        const excludedNames = ["общие", "common", "shared", "все", "all", "mixed", "смешанные"];
+        const pathLower = path.toLowerCase();
+        
+        for (const excludedName of excludedNames) {
+            if (pathLower.includes(excludedName)) {
+                this.showNotification(`Папки с названием "${excludedName}" не обрабатываются`, 'error');
+                return;
+            }
         }
         
         try {

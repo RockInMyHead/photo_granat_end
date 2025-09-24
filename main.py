@@ -171,10 +171,17 @@ async def process_folder_task(task_id: str, folder_path: str):
         if not path.exists():
             raise Exception("Путь не существует")
         
+        # Проверяем, что папка не содержит исключаемые названия
+        excluded_names = ["общие", "common", "shared", "все", "all", "mixed", "смешанные"]
+        folder_name_lower = str(path).lower()
+        for excluded_name in excluded_names:
+            if excluded_name in folder_name_lower:
+                raise Exception(f"Папки с названием '{excluded_name}' не обрабатываются")
+        
         # Определяем тип обработки - групповая только если есть подпапки с изображениями
         subdirs_with_images = []
         for p in path.iterdir():
-            if p.is_dir() and "общие" not in str(p).lower():
+            if p.is_dir() and not any(excluded_name in str(p).lower() for excluded_name in excluded_names):
                 # Проверяем есть ли изображения в подпапке
                 has_images = any(f.suffix.lower() in IMG_EXTS for f in p.rglob("*") if f.is_file())
                 if has_images:
@@ -348,9 +355,12 @@ async def get_queue():
 @app.post("/api/queue/add")
 async def add_to_queue(item: QueueItem):
     """Добавить папку в очередь"""
-    # Проверяем, что папка не содержит "общие" в названии
-    if "общие" in str(item.path).lower():
-        raise HTTPException(status_code=400, detail="Папки 'общие' не обрабатываются")
+    # Проверяем, что папка не содержит исключаемые названия
+    excluded_names = ["общие", "common", "shared", "все", "all", "mixed", "смешанные"]
+    folder_name_lower = str(item.path).lower()
+    for excluded_name in excluded_names:
+        if excluded_name in folder_name_lower:
+            raise HTTPException(status_code=400, detail=f"Папки с названием '{excluded_name}' не обрабатываются")
     
     if item.path not in app_state["queue"]:
         app_state["queue"].append(item.path)
