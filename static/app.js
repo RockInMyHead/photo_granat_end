@@ -518,6 +518,7 @@ class PhotoClusterApp {
             let progressHtml = '';
             if (task.status === 'running' || task.status === 'pending') {
                 const progress = task.progress || 0;
+                console.log(`Task ${task.task_id} progress: ${progress}%, status: ${task.status}`);
                 progressHtml = `
                     <div class="progress-bar">
                         <div class="progress-fill" style="width: ${progress}%"></div>

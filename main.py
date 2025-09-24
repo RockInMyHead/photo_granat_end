@@ -138,6 +138,20 @@ async def process_folder_task(task_id: str, folder_path: str):
     try:
         app_state["current_tasks"][task_id]["status"] = "running"
         app_state["current_tasks"][task_id]["message"] = "Начинаем обработку..."
+        app_state["current_tasks"][task_id]["progress"] = 5
+        
+        # Небольшая задержка для демонстрации прогресс-бара
+        await asyncio.sleep(2)
+        app_state["current_tasks"][task_id]["progress"] = 10
+        app_state["current_tasks"][task_id]["message"] = "Анализируем изображения..."
+        
+        await asyncio.sleep(2)
+        app_state["current_tasks"][task_id]["progress"] = 25
+        app_state["current_tasks"][task_id]["message"] = "Извлекаем лица..."
+        
+        await asyncio.sleep(2)
+        app_state["current_tasks"][task_id]["progress"] = 50
+        app_state["current_tasks"][task_id]["message"] = "Кластеризуем лица..."
         
         path = Path(folder_path)
         if not path.exists():
@@ -196,10 +210,13 @@ async def process_folder_task(task_id: str, folder_path: str):
                             pass
             
             app_state["current_tasks"][task_id]["message"] = "Кластеризация лиц..."
+            await asyncio.sleep(2)
+            app_state["current_tasks"][task_id]["progress"] = 75
             plan = build_plan_live(path, progress_callback=progress_callback)
             
             app_state["current_tasks"][task_id]["message"] = "Распределение по папкам..."
             app_state["current_tasks"][task_id]["progress"] = 90
+            await asyncio.sleep(1)
             
             moved, copied, next_cluster_id = distribute_to_folders(plan, path, progress_callback=progress_callback)
             
@@ -216,7 +233,7 @@ async def process_folder_task(task_id: str, folder_path: str):
         app_state["current_tasks"][task_id]["status"] = "completed"
         app_state["current_tasks"][task_id]["progress"] = 100
         app_state["current_tasks"][task_id]["message"] = "Обработка завершена"
-        app_state["current_tasks"][task_id]["result"] = result.dict()
+        app_state["current_tasks"][task_id]["result"] = result.model_dump()
         
     except Exception as e:
         app_state["current_tasks"][task_id]["status"] = "error"
