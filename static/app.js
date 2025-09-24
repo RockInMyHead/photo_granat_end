@@ -210,29 +210,39 @@ class PhotoClusterApp {
                     // Обычная папка без превью
                     const button = document.createElement('button');
                     button.className = 'folder-btn';
-                    button.textContent = item.name.replace('📂 ', '');
-                    button.addEventListener('click', () => this.navigateToFolder(item.path));
                     
-                    // Drag & Drop для обычной папки
-                    button.setAttribute('draggable', 'true');
-                    button.addEventListener('dragstart', e => {
-                        e.dataTransfer.setData('text/plain', item.path);
-                        e.dataTransfer.effectAllowed = 'move';
-                    });
-                    button.addEventListener('dragover', e => {
-                        e.preventDefault();
-                        button.classList.add('drag-over');
-                    });
-                    button.addEventListener('dragleave', e => {
-                        e.preventDefault();
-                        button.classList.remove('drag-over');
-                    });
-                    button.addEventListener('drop', e => {
-                        e.preventDefault();
-                        button.classList.remove('drag-over');
-                        const src = e.dataTransfer.getData('text/plain');
-                        this.moveItem(src, item.path);
-                    });
+                    // Проверяем, является ли папка "общие"
+                    const folderName = item.name.replace('📂 ', '');
+                    if (folderName.toLowerCase().includes('общие')) {
+                        button.className += ' disabled';
+                        button.textContent = folderName + ' (не обрабатывается)';
+                        button.title = 'Папки "общие" не обрабатываются';
+                        button.disabled = true;
+                    } else {
+                        button.textContent = folderName;
+                        button.addEventListener('click', () => this.navigateToFolder(item.path));
+                        
+                        // Drag & Drop для обычной папки
+                        button.setAttribute('draggable', 'true');
+                        button.addEventListener('dragstart', e => {
+                            e.dataTransfer.setData('text/plain', item.path);
+                            e.dataTransfer.effectAllowed = 'move';
+                        });
+                        button.addEventListener('dragover', e => {
+                            e.preventDefault();
+                            button.classList.add('drag-over');
+                        });
+                        button.addEventListener('dragleave', e => {
+                            e.preventDefault();
+                            button.classList.remove('drag-over');
+                        });
+                        button.addEventListener('drop', e => {
+                            e.preventDefault();
+                            button.classList.remove('drag-over');
+                            const src = e.dataTransfer.getData('text/plain');
+                            this.moveItem(src, item.path);
+                        });
+                    }
                     
                     this.folderContents.appendChild(button);
                 }
@@ -352,6 +362,12 @@ class PhotoClusterApp {
     }
 
     async addToQueue(path) {
+        // Проверяем, что папка не содержит "общие" в названии
+        if (path.toLowerCase().includes('общие')) {
+            this.showNotification('Папки "общие" не обрабатываются', 'error');
+            return;
+        }
+        
         try {
             const response = await fetch('/api/queue/add', {
                 method: 'POST',
@@ -362,6 +378,11 @@ class PhotoClusterApp {
             });
 
             const result = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(result.detail || result.message);
+            }
+            
             this.showNotification(result.message, 'success');
             await this.loadQueue();
 

@@ -348,6 +348,10 @@ async def get_queue():
 @app.post("/api/queue/add")
 async def add_to_queue(item: QueueItem):
     """Добавить папку в очередь"""
+    # Проверяем, что папка не содержит "общие" в названии
+    if "общие" in str(item.path).lower():
+        raise HTTPException(status_code=400, detail="Папки 'общие' не обрабатываются")
+    
     if item.path not in app_state["queue"]:
         app_state["queue"].append(item.path)
         return {"message": f"Папка добавлена в очередь: {item.path}"}
