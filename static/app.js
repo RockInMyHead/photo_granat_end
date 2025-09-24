@@ -21,6 +21,7 @@ class PhotoClusterApp {
         this.clearBtn = document.getElementById('clearBtn');
         this.addQueueBtn = document.getElementById('addQueueBtn');
         this.tasksList = document.getElementById('tasksList');
+        this.clearTasksBtn = document.getElementById('clearTasksBtn');
         
         // Проверяем что все элементы найдены
         const elements = {
@@ -33,7 +34,8 @@ class PhotoClusterApp {
             processBtn: this.processBtn,
             clearBtn: this.clearBtn,
             addQueueBtn: this.addQueueBtn,
-            tasksList: this.tasksList
+            tasksList: this.tasksList,
+            clearTasksBtn: this.clearTasksBtn
         };
         
         for (const [name, element] of Object.entries(elements)) {
@@ -64,6 +66,8 @@ class PhotoClusterApp {
         this.clearBtn.addEventListener('click', () => this.clearQueue());
         // Кнопка добавить в очередь
         this.addQueueBtn.addEventListener('click', () => this.addToQueue(this.currentPath));
+        // Кнопка очистки завершенных задач
+        this.clearTasksBtn.addEventListener('click', () => this.clearCompletedTasks());
 
         // Загрузка файлов
         this.fileInput.addEventListener('change', (e) => this.handleFileUpload(e.target.files));
@@ -463,10 +467,15 @@ class PhotoClusterApp {
             return;
         }
         
-        if (tasks.length === 0) {
+        // Фильтруем только активные задачи для отображения
+        const activeTasks = tasks.filter(task => 
+            task.status === 'running' || task.status === 'pending'
+        );
+        
+        if (activeTasks.length === 0) {
             this.tasksList.innerHTML = `
                 <p style="text-align: center; color: #666; padding: 40px 0;">
-                    Задач пока нет
+                    Активных задач нет
                 </p>
             `;
             return;
@@ -474,13 +483,13 @@ class PhotoClusterApp {
 
         this.tasksList.innerHTML = '';
         
-        // Сортируем задачи - сначала активные, потом завершенные
-        tasks.sort((a, b) => {
-            const order = { 'running': 0, 'pending': 1, 'completed': 2, 'error': 3 };
+        // Сортируем только активные задачи
+        activeTasks.sort((a, b) => {
+            const order = { 'running': 0, 'pending': 1 };
             return order[a.status] - order[b.status];
         });
 
-        tasks.forEach(task => {
+        activeTasks.forEach(task => {
             const taskEl = document.createElement('div');
             taskEl.className = `task-item ${task.status}`;
             
@@ -518,7 +527,6 @@ class PhotoClusterApp {
             let progressHtml = '';
             if (task.status === 'running' || task.status === 'pending') {
                 const progress = task.progress || 0;
-                console.log(`Task ${task.task_id} progress: ${progress}%, status: ${task.status}`);
                 progressHtml = `
                     <div class="progress-bar">
                         <div class="progress-fill" style="width: ${progress}%"></div>
@@ -607,6 +615,22 @@ class PhotoClusterApp {
             this.navigateToFolder(this.currentPath);
         } catch (error) {
             this.showNotification('Ошибка перемещения: ' + error.message, 'error');
+        }
+    }
+
+    async clearCompletedTasks() {
+        try {
+            // Очищаем завершенные задачи на сервере
+            const response = await fetch('/api/tasks/clear', {
+                method: 'POST'
+            });
+            if (response.ok) {
+                this.showNotification('Завершенные задачи очищены', 'success');
+                // Обновляем список задач
+                await this.loadTasks();
+            }
+        } catch (error) {
+            this.showNotification('Ошибка очистки задач: ' + error.message, 'error');
         }
     }
 }

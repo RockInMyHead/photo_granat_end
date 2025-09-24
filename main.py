@@ -71,6 +71,20 @@ class MoveItem(BaseModel):
     dest: str
 
 # Утилиты
+def cleanup_old_tasks():
+    """Удалить старые завершенные задачи (старше 5 минут)"""
+    current_time = time.time()
+    tasks_to_remove = []
+    
+    for task_id, task in app_state["current_tasks"].items():
+        if task["status"] in ["completed", "error"]:
+            # Удаляем задачи старше 5 минут
+            if current_time - task["created_at"] > 300:  # 5 минут
+                tasks_to_remove.append(task_id)
+    
+    for task_id in tasks_to_remove:
+        del app_state["current_tasks"][task_id]
+
 def get_logical_drives():
     """Получить список логических дисков"""
     return [Path(p.mountpoint) for p in psutil.disk_partitions(all=False) if Path(p.mountpoint).exists()]
@@ -374,6 +388,10 @@ async def process_queue(background_tasks: BackgroundTasks):
 @app.get("/api/tasks")
 async def get_tasks():
     """Получить статус всех задач"""
+    # Очищаем старые задачи
+    cleanup_old_tasks()
+    
+    # Возвращаем все задачи (включая недавно завершенные)
     return {"tasks": list(app_state["current_tasks"].values())}
 
 @app.get("/api/tasks/{task_id}")
@@ -383,6 +401,20 @@ async def get_task(task_id: str):
         raise HTTPException(status_code=404, detail="Задача не найдена")
     
     return app_state["current_tasks"][task_id]
+
+@app.post("/api/tasks/clear")
+async def clear_completed_tasks():
+    """Очистить все завершенные задачи"""
+    tasks_to_remove = []
+    
+    for task_id, task in app_state["current_tasks"].items():
+        if task["status"] in ["completed", "error"]:
+            tasks_to_remove.append(task_id)
+    
+    for task_id in tasks_to_remove:
+        del app_state["current_tasks"][task_id]
+    
+    return {"message": f"Очищено {len(tasks_to_remove)} завершенных задач"}
 
 @app.get("/api/image/preview")
 async def get_image_preview(path: str, size: int = 150):
@@ -426,7 +458,16 @@ async def stream_tasks():
     """Stream all task updates via Server-Sent Events"""
     async def event_generator():
         while True:
-            data = {"tasks": list(app_state["current_tasks"].values())}
+            # Очищаем старые задачи
+            cleanup_old_tasks()
+            
+            # Получаем только активные задачи (pending, running)
+            active_tasks = [
+                task for task in app_state["current_tasks"].values() 
+                if task["status"] in ["pending", "running"]
+            ]
+            
+            data = {"tasks": active_tasks}
             yield f"data: {json.dumps(data)}\n\n"
             await asyncio.sleep(1)
     return StreamingResponse(event_generator(), media_type="text/event-stream")
