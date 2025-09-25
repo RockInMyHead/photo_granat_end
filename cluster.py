@@ -116,7 +116,13 @@ def build_plan_live(
     progress_callback=None,
 ):
     input_dir = Path(input_dir)
-    all_images = [p for p in input_dir.rglob("*") if is_image(p) and "общие" not in str(p.parent).lower()]
+    # Собираем все изображения, исключая те, что находятся в папках с нежелательными именами
+    excluded_names = ["общие", "общая", "common", "shared", "все", "all", "mixed", "смешанные"]
+    all_images = [
+        p for p in input_dir.rglob("*")
+        if is_image(p)
+        and not any(ex in str(p).lower() for ex in excluded_names)
+    ]
 
     if progress_callback:
         progress_callback(f"📂 Сканируется: {input_dir}, найдено изображений: {len(all_images)}", 1)
