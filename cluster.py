@@ -61,14 +61,16 @@ def merge_clusters_by_centroid(
                     for i, a in enumerate(labels) for b in labels[i+1:]]
         if pairwise:
             mean_dist = np.mean(pairwise)
-            threshold = max(min_threshold, min(mean_dist - margin, max_threshold))
+            # Более агрессивное объединение - увеличиваем margin для лучшего слияния
+            threshold = max(min_threshold, min(mean_dist - margin * 2, max_threshold))
         else:
             threshold = min_threshold
 
         if progress_callback:
             progress_callback(f"📏 Авто-порог объединения: {threshold:.3f}", 93)
     elif threshold is None:
-        threshold = 0.3
+        # Более мягкий порог по умолчанию для лучшего объединения
+        threshold = 0.35
 
     next_cluster_id = 0
     label_to_group = {}
@@ -94,6 +96,48 @@ def merge_clusters_by_centroid(
             label_to_group[l] = next_cluster_id
         next_cluster_id += 1
 
+    # Дополнительное объединение на основе максимального расстояния внутри кластеров
+    if progress_callback:
+        progress_callback("🔗 Дополнительное объединение похожих кластеров...", 94)
+    
+    # Вычисляем максимальное расстояние внутри каждого кластера
+    cluster_max_distances = {}
+    for label, embs in cluster_embeddings.items():
+        if len(embs) > 1:
+            distances = []
+            for i in range(len(embs)):
+                for j in range(i + 1, len(embs)):
+                    dist = cosine_distances([embs[i]], [embs[j]])[0][0]
+                    distances.append(dist)
+            cluster_max_distances[label] = max(distances) if distances else 0
+        else:
+            cluster_max_distances[label] = 0
+    
+    # Объединяем кластеры, если расстояние между их центрами меньше максимального расстояния внутри любого из них
+    additional_merges = {}
+    for i, label_i in enumerate(labels):
+        if label_i in additional_merges:
+            continue
+        for j, label_j in enumerate(labels[i+1:], i+1):
+            if label_j in additional_merges:
+                continue
+            dist = cosine_distances([centroids[label_i]], [centroids[label_j]])[0][0]
+            max_internal_dist = max(cluster_max_distances[label_i], cluster_max_distances[label_j])
+            
+            # Если расстояние между центрами меньше максимального внутреннего расстояния
+            if dist < max_internal_dist * 1.2:  # Добавляем небольшой буфер
+                additional_merges[label_j] = label_i
+    
+    # Применяем дополнительные объединения
+    for label_j, label_i in additional_merges.items():
+        if label_i in label_to_group:
+            label_to_group[label_j] = label_to_group[label_i]
+        else:
+            label_to_group[label_j] = label_to_group.get(label_i, next_cluster_id)
+            if label_i not in label_to_group:
+                label_to_group[label_i] = next_cluster_id
+                next_cluster_id += 1
+
     merged_clusters: Dict[int, Set[Path]] = defaultdict(set)
     cluster_by_img: Dict[Path, Set[int]] = defaultdict(set)
 
@@ -110,8 +154,8 @@ def build_plan_live(
     input_dir: Path,
     det_size=(640, 640),
     min_score: float = 0.5,
-    min_cluster_size: int = 2,
-    min_samples: int = 1,
+    min_cluster_size: int = 1,  # Более мягкий параметр - позволяем кластерам из 1 элемента
+    min_samples: int = 1,       # Минимальное количество образцов
     providers: List[str] = ("CPUExecutionProvider",),
     progress_callback=None,
 ):
@@ -207,9 +251,9 @@ def build_plan_live(
         owners=owners,
         raw_labels=raw_labels,
         auto_threshold=True,
-        margin=0.05,
-        min_threshold=0.2,
-        max_threshold=0.4,
+        margin=0.08,  # Увеличиваем margin для более агрессивного объединения
+        min_threshold=0.15,  # Более мягкий минимальный порог
+        max_threshold=0.45,  # Более высокий максимальный порог
         progress_callback=progress_callback
     )
 
