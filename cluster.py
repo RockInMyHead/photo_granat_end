@@ -557,40 +557,47 @@ def build_plan_live(
         progress_callback("🔄 Вычисление матрицы расстояний...", 85)
 
     print("🔄 Запускаем HDBSCAN...")
+    # Пытаемся использовать таймаут через signal, если доступно
     try:
         import signal
-        # Если SIGALRM доступен, используем таймаут, иначе запускаем HDBSCAN напрямую
-        if hasattr(signal, 'SIGALRM'):
+        timeout_supported = hasattr(signal, 'SIGALRM') and hasattr(signal, 'alarm')
+    except Exception:
+        timeout_supported = False
+    if timeout_supported:
+        try:
+            # Устанавливаем таймаут
             def timeout_handler(signum, frame):
                 raise TimeoutError("HDBSCAN timeout")
             signal.signal(signal.SIGALRM, timeout_handler)
             signal.alarm(300)  # 5 минут
-            model = hdbscan.HDBSCAN(metric='precomputed', min_cluster_size=min_cluster_size, min_samples=min_samples)
-            raw_labels = model.fit_predict(distance_matrix)
+            raw_labels = hdbscan.HDBSCAN(metric='precomputed', min_cluster_size=min_cluster_size, min_samples=min_samples).fit_predict(distance_matrix)
             signal.alarm(0)
-            print(f"✅ HDBSCAN завершен. Уникальные метки: {np.unique(raw_labels)}")
-        else:
-            print("ℹ️ SIGALRM не доступен, запускаем HDBSCAN без таймаута")
-            model = hdbscan.HDBSCAN(metric='precomputed', min_cluster_size=min_cluster_size, min_samples=min_samples)
-            raw_labels = model.fit_predict(distance_matrix)
-            print(f"✅ HDBSCAN завершен без таймаута. Уникальные метки: {np.unique(raw_labels)}")
-    except (TimeoutError, Exception) as e:
-        print(f"⚠️ HDBSCAN failed or timeout: {e}. Используем альтернативную агломеративную кластеризацию...")
+            print(f"✅ HDBSCAN с таймаутом завершен. Уникальные метки: {np.unique(raw_labels)}")
+        except TimeoutError:
+            print("⚠️ HDBSCAN timeout! Используем альтернативную агломеративную кластеризацию...")
+            try:
+                from sklearn.cluster import AgglomerativeClustering
+                agg = AgglomerativeClustering(n_clusters=None, affinity='precomputed', linkage='average', distance_threshold=0.35)
+                raw_labels = agg.fit_predict(distance_matrix)
+                print(f"✅ AgglomerativeClustering завершен. Уникальные метки: {np.unique(raw_labels)}")
+            except Exception as e2:
+                print(f"❌ Альтернативная кластеризация не удалась: {e2}. Все в один кластер.")
+                raw_labels = np.zeros(len(embeddings), dtype=int)
+    else:
+        print("ℹ️ Таймаут HDBSCAN не поддерживается на данной платформе, запускаем без таймаута...")
         try:
-            from sklearn.cluster import AgglomerativeClustering
-            # Кластеризация по расстоянию с порогом 0.35
-            print("🔄 AgglomerativeClustering с порогом 0.35 (precomputed)...")
-            agg = AgglomerativeClustering(
-                n_clusters=None,
-                affinity='precomputed',
-                linkage='average',
-                distance_threshold=0.35
-            )
-            raw_labels = agg.fit_predict(distance_matrix)
-            print(f"✅ AgglomerativeClustering завершен. Уникальные метки: {np.unique(raw_labels)}")
-        except Exception as e2:
-            print(f"❌ Альтернативная кластеризация не удалась: {e2}. Все в один кластер.")
-            raw_labels = np.zeros(len(embeddings), dtype=int)
+            raw_labels = hdbscan.HDBSCAN(metric='precomputed', min_cluster_size=min_cluster_size, min_samples=min_samples).fit_predict(distance_matrix)
+            print(f"✅ HDBSCAN без таймаута завершен. Уникальные метки: {np.unique(raw_labels)}")
+        except Exception as e:
+            print(f"❌ Ошибка HDBSCAN без таймаута: {e}. Используем альтернативную агломеративную кластеризацию...")
+            try:
+                from sklearn.cluster import AgglomerativeClustering
+                agg = AgglomerativeClustering(n_clusters=None, affinity='precomputed', linkage='average', distance_threshold=0.35)
+                raw_labels = agg.fit_predict(distance_matrix)
+                print(f"✅ AgglomerativeClustering завершен. Уникальные метки: {np.unique(raw_labels)}")
+            except Exception as e2:
+                print(f"❌ Альтернативная кластеризация не удалась: {e2}. Все в один кластер.")
+                raw_labels = np.zeros(len(embeddings), dtype=int)
 
     # Fallback: если HDBSCAN пометил все точки как шум, используем уникальные кластеры,
     # которые затем будут слиты нашими этапами объединения
