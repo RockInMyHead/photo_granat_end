@@ -350,13 +350,20 @@ def build_plan_live(
             percent = 10 + int((i + 1) / max(total, 1) * 70)  # 10-80% для анализа изображений
             progress_callback(f"📷 Анализ изображений: {percent}% ({i+1}/{total}) - {p.name}", percent)
         
+        print(f"🔍 Обрабатываем изображение {i+1}/{total}: {p.name}")
+        
         img = imread_safe(p)
         if img is None:
+            print(f"❌ Не удалось прочитать изображение: {p.name}")
             unreadable.append(p)
             continue
             
+        print(f"✅ Изображение загружено, размер: {img.shape}")
         faces = app.get(img)
+        print(f"🔍 Найдено лиц: {len(faces) if faces else 0}")
+        
         if not faces:
+            print(f"⚠️ Лица не найдены в: {p.name}")
             no_faces.append(p)
             continue
 
@@ -387,6 +394,12 @@ def build_plan_live(
 
         if count > 0:
             img_face_count[p] = count
+            print(f"✅ Обработано лиц в {p.name}: {count}")
+
+    print(f"📊 Итого обработано изображений: {len(all_images)}")
+    print(f"📊 Найдено эмбеддингов: {len(embeddings)}")
+    print(f"📊 Нечитаемых файлов: {len(unreadable)}")
+    print(f"📊 Файлов без лиц: {len(no_faces)}")
 
     if not embeddings:
         if progress_callback:
@@ -400,17 +413,22 @@ def build_plan_live(
         }
 
     # Этап 2: Кластеризация
+    print(f"🔄 Начинаем кластеризацию {len(embeddings)} лиц...")
     if progress_callback:
         progress_callback(f"🔄 Кластеризация {len(embeddings)} лиц...", 80)
     
     X = np.vstack(embeddings)
+    print(f"📐 Создаем матрицу расстояний для {X.shape[0]} эмбеддингов...")
     distance_matrix = cosine_distances(X)
+    print(f"✅ Матрица расстояний создана: {distance_matrix.shape}")
 
     if progress_callback:
         progress_callback("🔄 Вычисление матрицы расстояний...", 85)
 
+    print("🔄 Запускаем HDBSCAN...")
     model = hdbscan.HDBSCAN(metric='precomputed', min_cluster_size=min_cluster_size, min_samples=min_samples)
     raw_labels = model.fit_predict(distance_matrix)
+    print(f"✅ HDBSCAN завершен. Уникальные метки: {np.unique(raw_labels)}")
 
     # Fallback: если HDBSCAN пометил все точки как шум, используем уникальные кластеры,
     # которые затем будут слиты нашими этапами объединения
@@ -445,6 +463,7 @@ def build_plan_live(
             cluster_by_img[path].add(cluster_id)
 
     # Этап 3: Формирование плана распределения
+    print(f"🔄 Формируем план распределения...")
     if progress_callback:
         progress_callback("🔄 Формирование плана распределения...", 95)
     
@@ -458,6 +477,8 @@ def build_plan_live(
             "cluster": sorted(list(clusters)),
             "faces": img_face_count.get(path, 0)
         })
+    
+    print(f"📋 План распределения: {len(plan)} файлов")
 
     # Если по какой-то причине план пуст, но эмбеддинги были — переносим все изображения с лицами в один кластер
     if not plan and embeddings:
