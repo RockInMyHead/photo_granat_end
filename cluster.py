@@ -155,6 +155,79 @@ def build_plan(input_dir: Path, providers=("CPUExecutionProvider",), progress=No
     }
 
 
+def distribute_to_folders(plan_result, input_dir: Path, progress_callback=None):
+    """Распределяет изображения по папкам на основе плана кластеризации."""
+    if progress_callback:
+        progress_callback("📁 Создание папок и распределение файлов...", 90)
+    
+    clusters = plan_result.get("clusters", {})
+    plan = plan_result.get("plan", [])
+    
+    if not clusters:
+        return 0, 0, 0
+    
+    input_dir = Path(input_dir)
+    output_dir = input_dir / "clustered"
+    output_dir.mkdir(exist_ok=True)
+    
+    moved = 0
+    copied = 0
+    next_cluster_id = max(clusters.keys(), default=0) + 1
+    
+    for cluster_id, image_paths in clusters.items():
+        if not image_paths:
+            continue
+            
+        cluster_dir = output_dir / f"person_{cluster_id}"
+        cluster_dir.mkdir(exist_ok=True)
+        
+        for img_path in image_paths:
+            src = Path(img_path)
+            if not src.exists():
+                continue
+                
+            dst = cluster_dir / src.name
+            if dst.exists():
+                # Если файл уже существует, добавляем суффикс
+                stem = src.stem
+                suffix = src.suffix
+                counter = 1
+                while dst.exists():
+                    dst = cluster_dir / f"{stem}_{counter}{suffix}"
+                    counter += 1
+            
+            try:
+                shutil.copy2(src, dst)
+                copied += 1
+            except Exception as e:
+                print(f"Ошибка копирования {src} -> {dst}: {e}")
+    
+    return moved, copied, next_cluster_id
+
+
+def process_group_folder(input_dir: Path, progress_callback=None):
+    """Обрабатывает папку с уже сгруппированными изображениями."""
+    if progress_callback:
+        progress_callback("🔄 Обработка групповой папки...", 10)
+    
+    # Простая реализация - просто сканируем папку
+    input_dir = Path(input_dir)
+    if not input_dir.exists():
+        return
+    
+    # Сканируем все изображения в папке
+    all_images = [p for p in input_dir.rglob("*") if is_image(p)]
+    
+    if progress_callback:
+        progress_callback(f"📂 Найдено {len(all_images)} изображений в групповой папке", 50)
+    
+    # Здесь можно добавить дополнительную логику обработки
+    # Например, переименование файлов, создание превью и т.д.
+    
+    if progress_callback:
+        progress_callback("✅ Групповая папка обработана", 100)
+
+
 if __name__ == "__main__":
     def dummy_progress(msg, percent):
         print(f"[{percent}%] {msg}")

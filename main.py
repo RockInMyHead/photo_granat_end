@@ -18,7 +18,7 @@ import tempfile
 import re
 from io import BytesIO
 
-from cluster import build_plan_live, distribute_to_folders, process_group_folder, IMG_EXTS
+from cluster import build_plan, distribute_to_folders, process_group_folder, IMG_EXTS
 
 app = FastAPI(title="Кластеризация лиц", description="API для кластеризации лиц и распределения по группам")
 
@@ -233,7 +233,7 @@ async def process_folder_task(task_id: str, folder_path: str):
             app_state["current_tasks"][task_id]["message"] = "Кластеризация лиц..."
             await asyncio.sleep(2)
             app_state["current_tasks"][task_id]["progress"] = 75
-            plan = build_plan_live(path, progress_callback=progress_callback)
+            plan = build_plan(path, progress=progress_callback)
             
             app_state["current_tasks"][task_id]["message"] = "Распределение по папкам..."
             app_state["current_tasks"][task_id]["progress"] = 90
