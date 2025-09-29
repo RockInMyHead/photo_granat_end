@@ -35,9 +35,9 @@ def merge_clusters_by_centroid(
     raw_labels: np.ndarray,
     threshold: Optional[float] = None,
     auto_threshold: bool = False,
-    margin: float = 0.05,  # Возвращаем к более консервативному значению
-    min_threshold: float = 0.25,  # Увеличиваем минимальный порог для точности
-    max_threshold: float = 0.35,  # Снижаем максимальный порог
+    margin: float = 0.07,  # Компромиссное значение между агрессивным и консервативным
+    min_threshold: float = 0.20,  # Умеренный минимальный порог
+    max_threshold: float = 0.40,  # Умеренный максимальный порог
     progress_callback=None
 ) -> Tuple[Dict[int, Set[Path]], Dict[Path, Set[int]]]:
 
@@ -69,8 +69,8 @@ def merge_clusters_by_centroid(
         if progress_callback:
             progress_callback(f"📏 Авто-порог объединения: {threshold:.3f}", 93)
     elif threshold is None:
-        # Более строгий порог по умолчанию для точности
-        threshold = 0.28
+        # Сбалансированный порог по умолчанию
+        threshold = 0.32
 
     next_cluster_id = 0
     label_to_group = {}
@@ -124,12 +124,12 @@ def merge_clusters_by_centroid(
             dist = cosine_distances([centroids[label_i]], [centroids[label_j]])[0][0]
             max_internal_dist = max(cluster_max_distances[label_i], cluster_max_distances[label_j])
             
-            # Более консервативное объединение для точности
-            if dist < max_internal_dist * 1.1:  # Уменьшаем буфер для более точного слияния
+            # Сбалансированное объединение
+            if dist < max_internal_dist * 1.3:  # Увеличиваем буфер для лучшего объединения
                 additional_merges[label_j] = label_i
-            # Дополнительная проверка: только для очень маленьких кластеров и очень похожих лиц
-            elif (len(cluster_embeddings[label_i]) <= 2 and len(cluster_embeddings[label_j]) <= 2 and 
-                  dist < 0.25):  # Более строгий порог для маленьких кластеров
+            # Дополнительная проверка: для маленьких кластеров более мягкие условия
+            elif (len(cluster_embeddings[label_i]) <= 3 and len(cluster_embeddings[label_j]) <= 3 and 
+                  dist < 0.32):  # Более мягкий порог для маленьких кластеров
                 additional_merges[label_j] = label_i
     
     # Применяем дополнительные объединения
@@ -165,8 +165,8 @@ def merge_clusters_by_centroid(
             if label_j in final_merges:
                 continue
             dist = cosine_distances([merged_centroids[label_i]], [merged_centroids[label_j]])[0][0]
-            # Более строгий порог для финального объединения
-            if dist < 0.22:  # Значительно уменьшаем порог для точности
+            # Сбалансированный порог для финального объединения
+            if dist < 0.28:  # Компромиссный порог
                 final_merges[label_j] = label_i
     
     # Применяем финальные объединения
@@ -258,14 +258,19 @@ def post_process_clusters(
             # Проверяем расстояние между центроидами
             dist = cosine_distances([centroid_i], [centroid_j])[0][0]
             
-            # Строгий порог для постобработки - только очень похожие лица
-            if dist < 0.18:  # Очень строгий порог для финального объединения
+            # Умный анализ для постобработки
+            if dist < 0.25:  # Более мягкий порог для начальной проверки
                 # Дополнительная проверка: валидируем качество объединенного кластера
                 combined_embeddings = embeddings_i + embeddings_j
-                if validate_cluster_quality(combined_embeddings, threshold=0.35):
+                
+                # Адаптивный порог валидации в зависимости от размера кластеров
+                validation_threshold = 0.4 if (len(embeddings_i) <= 2 or len(embeddings_j) <= 2) else 0.35
+                
+                if validate_cluster_quality(combined_embeddings, threshold=validation_threshold):
                     clusters_to_merge.append((cluster_id_i, cluster_id_j))
+                    print(f"✅ Объединяем кластеры {cluster_id_i} и {cluster_id_j} (расстояние: {dist:.3f})")
                 else:
-                    print(f"⚠️ Отклонено объединение кластеров {cluster_id_i} и {cluster_id_j} - низкое качество")
+                    print(f"⚠️ Отклонено объединение кластеров {cluster_id_i} и {cluster_id_j} - низкое качество (расстояние: {dist:.3f})")
     
     # Объединяем найденные кластеры
     if clusters_to_merge:
@@ -330,11 +335,104 @@ def post_process_clusters(
     
     return cluster_map
 
+def smart_final_merge(
+    cluster_map: Dict[int, Set[Path]], 
+    embeddings: List[np.ndarray], 
+    owners: List[Path],
+    progress_callback=None
+) -> Dict[int, Set[Path]]:
+    """
+    Финальное умное объединение для случаев, когда один человек попал в разные кластеры
+    """
+    if progress_callback:
+        progress_callback("🧠 Умное финальное объединение...", 98)
+    
+    # Создаем маппинг путь -> эмбеддинг
+    path_to_embedding = {}
+    for emb, path in zip(embeddings, owners):
+        path_to_embedding[path] = emb
+    
+    # Анализируем кластеры по размеру - маленькие кластеры чаще всего нужно объединять
+    small_clusters = []
+    large_clusters = []
+    
+    for cluster_id, paths in cluster_map.items():
+        if len(paths) <= 3:  # Маленькие кластеры
+            small_clusters.append(cluster_id)
+        else:
+            large_clusters.append(cluster_id)
+    
+    print(f"🔍 Анализ кластеров: маленьких={len(small_clusters)}, больших={len(large_clusters)}")
+    
+    # Пытаемся объединить маленькие кластеры с большими или между собой
+    merges_to_apply = []
+    
+    for small_id in small_clusters:
+        small_paths = cluster_map[small_id]
+        small_embeddings = [path_to_embedding[p] for p in small_paths if p in path_to_embedding]
+        if not small_embeddings:
+            continue
+        small_centroid = np.mean(small_embeddings, axis=0)
+        
+        best_match = None
+        best_distance = float('inf')
+        
+        # Сначала проверяем большие кластеры
+        for large_id in large_clusters:
+            if large_id == small_id:
+                continue
+            large_paths = cluster_map[large_id]
+            large_embeddings = [path_to_embedding[p] for p in large_paths if p in path_to_embedding]
+            if not large_embeddings:
+                continue
+            large_centroid = np.mean(large_embeddings, axis=0)
+            
+            dist = cosine_distances([small_centroid], [large_centroid])[0][0]
+            if dist < 0.35 and dist < best_distance:  # Более мягкий порог для объединения с большими кластерами
+                best_distance = dist
+                best_match = large_id
+        
+        # Если не нашли подходящий большой кластер, проверяем другие маленькие
+        if best_match is None:
+            for other_small_id in small_clusters:
+                if other_small_id == small_id or other_small_id in [m[1] for m in merges_to_apply]:
+                    continue
+                other_paths = cluster_map[other_small_id]
+                other_embeddings = [path_to_embedding[p] for p in other_paths if p in path_to_embedding]
+                if not other_embeddings:
+                    continue
+                other_centroid = np.mean(other_embeddings, axis=0)
+                
+                dist = cosine_distances([small_centroid], [other_centroid])[0][0]
+                if dist < 0.30 and dist < best_distance:  # Строже для объединения маленьких кластеров
+                    best_distance = dist
+                    best_match = other_small_id
+        
+        if best_match is not None:
+            merges_to_apply.append((small_id, best_match))
+            print(f"🔗 Планируем объединить кластер {small_id} с {best_match} (расстояние: {best_distance:.3f})")
+    
+    # Применяем объединения
+    if merges_to_apply:
+        print(f"🔄 Применяем {len(merges_to_apply)} умных объединений...")
+        final_cluster_map = cluster_map.copy()
+        
+        for source_id, target_id in merges_to_apply:
+            if source_id in final_cluster_map and target_id in final_cluster_map:
+                # Объединяем кластеры
+                final_cluster_map[target_id].update(final_cluster_map[source_id])
+                del final_cluster_map[source_id]
+                print(f"✅ Объединили кластер {source_id} с {target_id}")
+        
+        return final_cluster_map
+    
+    return cluster_map
+
 def build_plan_live(
     input_dir: Path,
     det_size=(640, 640),
-    min_score: float = 0.6,  # Повышаем порог для лучшего качества лиц
-    min_cluster_size: int = 2,  # Требуем минимум 2 элемента в кластере
+    min_score: float = 0.5,  # Сбалансированный порог для качества лиц
+    min_cluster_size: int = 1,  # Разрешаем кластеры из 1 элемента
     min_samples: int = 1,       # Минимальное количество образцов
     providers: List[str] = ("CPUExecutionProvider",),
     progress_callback=None,
@@ -515,9 +613,9 @@ def build_plan_live(
         owners=owners,
         raw_labels=raw_labels,
         auto_threshold=True,
-        margin=0.05,  # Возвращаем к консервативному значению
-        min_threshold=0.25,  # Более строгий минимальный порог
-        max_threshold=0.35,  # Более строгий максимальный порог
+        margin=0.07,  # Сбалансированное значение
+        min_threshold=0.20,  # Умеренный минимальный порог
+        max_threshold=0.40,  # Умеренный максимальный порог
         progress_callback=progress_callback
     )
     
@@ -529,7 +627,15 @@ def build_plan_live(
         progress_callback=progress_callback
     )
     
-    # Обновляем cluster_by_img после постобработки
+    # Финальное умное объединение для решения проблемы разделения одного человека
+    cluster_map = smart_final_merge(
+        cluster_map=cluster_map,
+        embeddings=embeddings,
+        owners=owners,
+        progress_callback=progress_callback
+    )
+    
+    # Обновляем cluster_by_img после всех объединений
     cluster_by_img = defaultdict(set)
     for cluster_id, paths in cluster_map.items():
         for path in paths:
