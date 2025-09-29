@@ -9,6 +9,17 @@ from insightface.app import FaceAnalysis
 import hdbscan
 from collections import defaultdict
 
+# =============================================================================
+# Константы порогов кластеризации
+# =============================================================================
+DEFAULT_THRESHOLD = 0.27           # [1] Основной порог объединения кластеров — более строгий
+FINAL_MERGE_THRESHOLD = 0.25      # [1] Порог финального объединения через merge_clusters_by_centroid
+POSTPROCESS_THRESHOLD = 0.23      # [1] Порог в post_process_clusters
+SMART_LARGE_THRESHOLD = 0.28      # [1] Порог для объединения маленьких кластеров с большими
+SMART_SMALL_THRESHOLD = 0.25      # [1] Порог для объединения между маленькими кластерами
+SUPER_AGGRESSIVE_THRESHOLD = 0.26 # [1] Порог для супер-агрессивного объединения
+# =============================================================================
+
 IMG_EXTS = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp'}
 
 def is_image(p: Path) -> bool:
@@ -33,7 +44,7 @@ def merge_clusters_by_centroid(
     embeddings: List[np.ndarray],
     owners: List[Path],
     raw_labels: np.ndarray,
-    threshold: Optional[float] = None,
+    threshold: Optional[float] = DEFAULT_THRESHOLD,
     auto_threshold: bool = False,
     margin: float = 0.10,  # Более агрессивное значение для лучшего объединения
     min_threshold: float = 0.18,  # Более мягкий минимальный порог
@@ -166,7 +177,7 @@ def merge_clusters_by_centroid(
                 continue
             dist = cosine_distances([merged_centroids[label_i]], [merged_centroids[label_j]])[0][0]
             # Более агрессивный порог для финального объединения
-            if dist < 0.33:  # Более мягкий порог для лучшего объединения
+            if dist < FINAL_MERGE_THRESHOLD:  # Более мягкий порог для лучшего объединения
                 final_merges[label_j] = label_i
     
     # Применяем финальные объединения
@@ -259,7 +270,7 @@ def post_process_clusters(
             dist = cosine_distances([centroid_i], [centroid_j])[0][0]
             
             # Более агрессивный анализ для постобработки
-            if dist < 0.30:  # Увеличиваем порог для начальной проверки
+            if dist < POSTPROCESS_THRESHOLD:  # Увеличиваем порог для начальной проверки
                 # Дополнительная проверка: валидируем качество объединенного кластера
                 combined_embeddings = embeddings_i + embeddings_j
                 
@@ -388,7 +399,7 @@ def smart_final_merge(
             large_centroid = np.mean(large_embeddings, axis=0)
             
             dist = cosine_distances([small_centroid], [large_centroid])[0][0]
-            if dist < 0.40 and dist < best_distance:  # Еще более мягкий порог для объединения с большими кластерами
+            if dist < SMART_LARGE_THRESHOLD and dist < best_distance:  # Еще более мягкий порог для объединения с большими кластерами
                 best_distance = dist
                 best_match = large_id
         
@@ -404,7 +415,7 @@ def smart_final_merge(
                 other_centroid = np.mean(other_embeddings, axis=0)
                 
                 dist = cosine_distances([small_centroid], [other_centroid])[0][0]
-                if dist < 0.35 and dist < best_distance:  # Более мягкий порог для объединения маленьких кластеров
+                if dist < SMART_SMALL_THRESHOLD and dist < best_distance:  # Более мягкий порог для объединения маленьких кластеров
                     best_distance = dist
                     best_match = other_small_id
         
@@ -473,7 +484,7 @@ def super_aggressive_merge(
             dist = cosine_distances([centroid_i], [centroid_j])[0][0]
             
             # Супер-агрессивный порог - объединяем практически все похожие лица
-            if dist < 0.42:  # Очень мягкий порог
+            if dist < SUPER_AGGRESSIVE_THRESHOLD:  # Очень мягкий порог
                 merges_to_apply.append((cluster_id_i, cluster_id_j))
                 print(f"🔥 Супер-агрессивное объединение кластеров {cluster_id_i} и {cluster_id_j} (расстояние: {dist:.3f})")
     
