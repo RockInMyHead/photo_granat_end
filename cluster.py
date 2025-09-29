@@ -412,6 +412,13 @@ def build_plan_live(
     model = hdbscan.HDBSCAN(metric='precomputed', min_cluster_size=min_cluster_size, min_samples=min_samples)
     raw_labels = model.fit_predict(distance_matrix)
 
+    # Fallback: если HDBSCAN пометил все точки как шум, используем уникальные кластеры,
+    # которые затем будут слиты нашими этапами объединения
+    if raw_labels.size > 0 and np.all(raw_labels == -1):
+        if progress_callback:
+            progress_callback("⚠️ Все точки помечены как шум HDBSCAN. Включаем резервный режим кластеризации.", 82)
+        raw_labels = np.arange(len(embeddings), dtype=int)
+
     cluster_map, cluster_by_img = merge_clusters_by_centroid(
         embeddings=embeddings,
         owners=owners,
@@ -451,6 +458,19 @@ def build_plan_live(
             "cluster": sorted(list(clusters)),
             "faces": img_face_count.get(path, 0)
         })
+
+    # Если по какой-то причине план пуст, но эмбеддинги были — переносим все изображения с лицами в один кластер
+    if not plan and embeddings:
+        if progress_callback:
+            progress_callback("⚠️ План пуст. Переносим все изображения с лицами в один кластер (резервный режим)", 96)
+        fallback_cluster_id = 0
+        img_with_faces = [p for p, cnt in img_face_count.items() if cnt > 0]
+        for p in img_with_faces:
+            plan.append({
+                "path": str(p),
+                "cluster": [fallback_cluster_id],
+                "faces": img_face_count.get(p, 0)
+            })
 
     # Завершение
     if progress_callback:
