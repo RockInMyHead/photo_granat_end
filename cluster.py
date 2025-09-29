@@ -35,9 +35,9 @@ def merge_clusters_by_centroid(
     raw_labels: np.ndarray,
     threshold: Optional[float] = None,
     auto_threshold: bool = False,
-    margin: float = 0.08,
-    min_threshold: float = 0.15,
-    max_threshold: float = 0.45,
+    margin: float = 0.05,  # Возвращаем к более консервативному значению
+    min_threshold: float = 0.25,  # Увеличиваем минимальный порог для точности
+    max_threshold: float = 0.35,  # Снижаем максимальный порог
     progress_callback=None
 ) -> Tuple[Dict[int, Set[Path]], Dict[Path, Set[int]]]:
 
@@ -61,16 +61,16 @@ def merge_clusters_by_centroid(
                     for i, a in enumerate(labels) for b in labels[i+1:]]
         if pairwise:
             mean_dist = np.mean(pairwise)
-            # Более агрессивное объединение - увеличиваем margin для лучшего слияния
-            threshold = max(min_threshold, min(mean_dist - margin * 3, max_threshold))
+            # Более консервативное объединение для точности
+            threshold = max(min_threshold, min(mean_dist - margin, max_threshold))
         else:
             threshold = min_threshold
 
         if progress_callback:
             progress_callback(f"📏 Авто-порог объединения: {threshold:.3f}", 93)
     elif threshold is None:
-        # Более мягкий порог по умолчанию для лучшего объединения
-        threshold = 0.3
+        # Более строгий порог по умолчанию для точности
+        threshold = 0.28
 
     next_cluster_id = 0
     label_to_group = {}
@@ -124,12 +124,12 @@ def merge_clusters_by_centroid(
             dist = cosine_distances([centroids[label_i]], [centroids[label_j]])[0][0]
             max_internal_dist = max(cluster_max_distances[label_i], cluster_max_distances[label_j])
             
-            # Более агрессивное объединение - увеличиваем буфер и добавляем дополнительную проверку
-            if dist < max_internal_dist * 1.5:  # Увеличиваем буфер для более агрессивного слияния
+            # Более консервативное объединение для точности
+            if dist < max_internal_dist * 1.1:  # Уменьшаем буфер для более точного слияния
                 additional_merges[label_j] = label_i
-            # Дополнительная проверка: если кластеры очень маленькие (1-2 элемента), объединяем их при малом расстоянии
+            # Дополнительная проверка: только для очень маленьких кластеров и очень похожих лиц
             elif (len(cluster_embeddings[label_i]) <= 2 and len(cluster_embeddings[label_j]) <= 2 and 
-                  dist < 0.4):  # Более мягкий порог для маленьких кластеров
+                  dist < 0.25):  # Более строгий порог для маленьких кластеров
                 additional_merges[label_j] = label_i
     
     # Применяем дополнительные объединения
@@ -165,8 +165,8 @@ def merge_clusters_by_centroid(
             if label_j in final_merges:
                 continue
             dist = cosine_distances([merged_centroids[label_i]], [merged_centroids[label_j]])[0][0]
-            # Еще более мягкий порог для финального объединения
-            if dist < 0.35:
+            # Более строгий порог для финального объединения
+            if dist < 0.22:  # Значительно уменьшаем порог для точности
                 final_merges[label_j] = label_i
     
     # Применяем финальные объединения
@@ -187,6 +187,24 @@ def merge_clusters_by_centroid(
         cluster_by_img[path].add(new_label)
 
     return merged_clusters, cluster_by_img
+
+def validate_cluster_quality(embeddings_list: List[np.ndarray], threshold: float = 0.4) -> bool:
+    """
+    Проверяет качество кластера - все ли лица в нем достаточно похожи
+    """
+    if len(embeddings_list) <= 1:
+        return True
+    
+    # Вычисляем все попарные расстояния внутри кластера
+    distances = []
+    for i in range(len(embeddings_list)):
+        for j in range(i + 1, len(embeddings_list)):
+            dist = cosine_distances([embeddings_list[i]], [embeddings_list[j]])[0][0]
+            distances.append(dist)
+    
+    # Если максимальное расстояние больше порога, кластер плохой
+    max_distance = max(distances) if distances else 0
+    return max_distance < threshold
 
 def post_process_clusters(
     cluster_map: Dict[int, Set[Path]], 
@@ -240,9 +258,14 @@ def post_process_clusters(
             # Проверяем расстояние между центроидами
             dist = cosine_distances([centroid_i], [centroid_j])[0][0]
             
-            # Очень агрессивный порог для постобработки
-            if dist < 0.25:  # Очень мягкий порог для финального объединения
-                clusters_to_merge.append((cluster_id_i, cluster_id_j))
+            # Строгий порог для постобработки - только очень похожие лица
+            if dist < 0.18:  # Очень строгий порог для финального объединения
+                # Дополнительная проверка: валидируем качество объединенного кластера
+                combined_embeddings = embeddings_i + embeddings_j
+                if validate_cluster_quality(combined_embeddings, threshold=0.35):
+                    clusters_to_merge.append((cluster_id_i, cluster_id_j))
+                else:
+                    print(f"⚠️ Отклонено объединение кластеров {cluster_id_i} и {cluster_id_j} - низкое качество")
     
     # Объединяем найденные кластеры
     if clusters_to_merge:
@@ -310,8 +333,8 @@ def post_process_clusters(
 def build_plan_live(
     input_dir: Path,
     det_size=(640, 640),
-    min_score: float = 0.4,  # Снижаем порог для лучшего обнаружения лиц
-    min_cluster_size: int = 1,  # Более мягкий параметр - позволяем кластерам из 1 элемента
+    min_score: float = 0.6,  # Повышаем порог для лучшего качества лиц
+    min_cluster_size: int = 2,  # Требуем минимум 2 элемента в кластере
     min_samples: int = 1,       # Минимальное количество образцов
     providers: List[str] = ("CPUExecutionProvider",),
     progress_callback=None,
@@ -492,9 +515,9 @@ def build_plan_live(
         owners=owners,
         raw_labels=raw_labels,
         auto_threshold=True,
-        margin=0.12,  # Еще больше увеличиваем margin для более агрессивного объединения
-        min_threshold=0.12,  # Еще более мягкий минимальный порог
-        max_threshold=0.5,  # Еще более высокий максимальный порог
+        margin=0.05,  # Возвращаем к консервативному значению
+        min_threshold=0.25,  # Более строгий минимальный порог
+        max_threshold=0.35,  # Более строгий максимальный порог
         progress_callback=progress_callback
     )
     
