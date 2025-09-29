@@ -150,6 +150,7 @@ def get_folder_contents(path: Path) -> List[FolderInfo]:
 async def process_folder_task(task_id: str, folder_path: str):
     """Фоновая задача обработки папки"""
     try:
+        print(f"🚀 Начинаем обработку папки: {folder_path}")
         app_state["current_tasks"][task_id]["status"] = "running"
         app_state["current_tasks"][task_id]["message"] = "Начинаем обработку..."
         app_state["current_tasks"][task_id]["progress"] = 5
@@ -233,7 +234,9 @@ async def process_folder_task(task_id: str, folder_path: str):
             app_state["current_tasks"][task_id]["message"] = "Кластеризация лиц..."
             await asyncio.sleep(2)
             app_state["current_tasks"][task_id]["progress"] = 75
+            print(f"🔍 Начинаем кластеризацию для папки: {path}")
             plan = build_plan(path, progress=progress_callback)
+            print(f"✅ Кластеризация завершена. Найдено кластеров: {len(plan.get('clusters', {}))}")
             
             app_state["current_tasks"][task_id]["message"] = "Распределение по папкам..."
             app_state["current_tasks"][task_id]["progress"] = 90
@@ -257,6 +260,9 @@ async def process_folder_task(task_id: str, folder_path: str):
         app_state["current_tasks"][task_id]["result"] = result.model_dump()
         
     except Exception as e:
+        print(f"❌ Ошибка в процессе обработки: {str(e)}")
+        import traceback
+        traceback.print_exc()
         app_state["current_tasks"][task_id]["status"] = "error"
         app_state["current_tasks"][task_id]["error"] = str(e)
         app_state["current_tasks"][task_id]["message"] = f"Ошибка: {str(e)}"

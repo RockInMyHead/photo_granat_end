@@ -48,12 +48,12 @@ def extract_embeddings(app: FaceAnalysis, img_paths: List[Path], min_score: floa
         if progress:
             percent = 10 + int((i + 1) / max(total, 1) * 70)
             progress(f"📷 Анализ изображений: {percent}% ({i+1}/{total}) - {p.name}", percent)
-
+        
         img = imread_safe(p)
         if img is None:
             unreadable.append(p)
             continue
-
+            
         faces = app.get(img)
         if not faces:
             no_faces.append(p)
@@ -84,7 +84,7 @@ def cluster_embeddings(embeddings: List[np.ndarray], progress=None) -> np.ndarra
 
     if not embeddings:
         return np.array([])
-
+    
     X = np.vstack(embeddings)
     if X.shape[0] > 50:
         sim_matrix = cosine_similarity(X)
@@ -99,27 +99,36 @@ def cluster_embeddings(embeddings: List[np.ndarray], progress=None) -> np.ndarra
 
 def build_plan(input_dir: Path, providers=("CPUExecutionProvider",), progress=None):
     input_dir = Path(input_dir)
+    print(f"📂 Сканируем папку: {input_dir}")
     excluded_names = ["общие", "общая", "common", "shared", "все", "all", "mixed", "смешанные"]
     img_paths = [p for p in input_dir.rglob("*") if is_image(p) and not any(ex in str(p).lower() for ex in excluded_names)]
+    print(f"📷 Найдено изображений: {len(img_paths)}")
 
     if progress:
         progress(f"📂 Сканируется: {input_dir}, найдено изображений: {len(img_paths)}", 1)
 
+    print("🤖 Инициализируем модель распознавания лиц...")
     app = init_face_model(providers=providers)
+    print("✅ Модель загружена")
 
     if progress:
         progress("✅ Модель загружена, начинаем анализ изображений...", 10)
 
+    print("🔍 Начинаем извлечение эмбеддингов...")
     embeddings, owners, unreadable, no_faces, face_count = extract_embeddings(app, img_paths, progress=progress)
+    print(f"📊 Извлечено эмбеддингов: {len(embeddings)}")
 
     if not embeddings:
         if progress:
             progress("⚠️ Не найдено лиц для кластеризации", 100)
         return {"clusters": {}, "plan": [], "unreadable": [str(p) for p in unreadable], "no_faces": [str(p) for p in no_faces]}
 
+    print("🔄 Начинаем кластеризацию...")
     labels = cluster_embeddings(embeddings, progress)
+    print(f"📊 Результат кластеризации: {len(np.unique(labels))} кластеров")
 
     if labels.size > 0 and np.all(labels == -1):
+        print("⚠️ Все точки помечены как шум, создаем отдельные кластеры")
         labels = np.arange(len(embeddings))
 
     cluster_map: Dict[int, Set[Path]] = defaultdict(set)
@@ -130,7 +139,7 @@ def build_plan(input_dir: Path, providers=("CPUExecutionProvider",), progress=No
             continue
         cluster_map[label].add(path)
         cluster_by_img[path].add(label)
-
+    
     plan = []
     for path in img_paths:
         clusters = cluster_by_img.get(path)
@@ -183,9 +192,9 @@ def distribute_to_folders(plan_result, input_dir: Path, progress_callback=None):
         
         for img_path in image_paths:
             src = Path(img_path)
-            if not src.exists():
-                continue
-                
+        if not src.exists():
+            continue
+
             dst = cluster_dir / src.name
             if dst.exists():
                 # Если файл уже существует, добавляем суффикс
@@ -198,7 +207,7 @@ def distribute_to_folders(plan_result, input_dir: Path, progress_callback=None):
             
             try:
                 shutil.copy2(src, dst)
-                copied += 1
+                    copied += 1
             except Exception as e:
                 print(f"Ошибка копирования {src} -> {dst}: {e}")
     
@@ -218,7 +227,7 @@ def process_group_folder(input_dir: Path, progress_callback=None):
     # Сканируем все изображения в папке
     all_images = [p for p in input_dir.rglob("*") if is_image(p)]
     
-    if progress_callback:
+        if progress_callback:
         progress_callback(f"📂 Найдено {len(all_images)} изображений в групповой папке", 50)
     
     # Здесь можно добавить дополнительную логику обработки
