@@ -553,16 +553,34 @@ def process_group_folder(group_dir: Path, progress_callback=None):
     cluster_counter = 1
     subfolders = [f for f in sorted(group_dir.iterdir()) if f.is_dir() and "общие" not in f.name.lower()]
     total_subfolders = len(subfolders)
-    
+
     for i, subfolder in enumerate(subfolders):
+        # Логируем прогресс обработки подпапок
         if progress_callback:
             percent = 10 + int((i + 1) / max(total_subfolders, 1) * 80)
             progress_callback(f"🔍 Обрабатывается подпапка: {subfolder.name} ({i+1}/{total_subfolders})", percent)
-            
+
         print(f"🔍 Обрабатывается подпапка: {subfolder}")
-        plan = build_plan_live(subfolder)
-        print(f"📊 Кластеров: {len(plan.get('clusters', {}))}, файлов: {len(plan.get('plan', []))}")
-        moved, copied, cluster_counter = distribute_to_folders(plan, subfolder, cluster_start=cluster_counter)
+        # Кластеризация с передачей коллбэка для логов
+        plan = build_plan_live(subfolder, progress_callback=progress_callback)
+        # Логируем результат кластеризации
+        clusters_count = len(plan.get('clusters', {}))
+        items_count = len(plan.get('plan', []))
+        print(f"📊 Подпапка: {subfolder.name} → кластеров: {clusters_count}, файлов: {items_count}")
+        if progress_callback:
+            progress_callback(f"📊 Результат: кластеров={clusters_count}, файлов={items_count}", percent=percent + 1)
+
+        # Распределение по папкам с передачей коллбэка
+        moved, copied, cluster_counter = distribute_to_folders(
+            plan,
+            subfolder,
+            cluster_start=cluster_counter,
+            progress_callback=progress_callback
+        )
+        # Логирование переноса
+        print(f"📦 Перенесено: {moved}, скопировано: {copied} в подпапке {subfolder.name}")
+        if progress_callback:
+            progress_callback(f"📦 Перенесено={moved}, скопировано={copied}", percent=90)
 
 
 
