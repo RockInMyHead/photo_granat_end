@@ -1,4 +1,4 @@
-import os # jjjjjj
+import os
 import cv2
 import shutil
 import numpy as np
@@ -373,6 +373,40 @@ def refine_overwide_clusters(
 def is_image(p: Path) -> bool:
     return p.suffix.lower() in IMG_EXTS
 
+
+def normalize_embedding(e: np.ndarray) -> np.ndarray:
+    """Нормализация эмбеддинга для стабильной работы."""
+    e = e.astype(np.float64)
+    norm = np.linalg.norm(e)
+    return e / norm if norm > 0 else e
+
+
+def init_insightface_app() -> FaceAnalysis:
+    """Простая инициализация InsightFace."""
+    app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+    app.prepare(ctx_id=-1, det_size=(640, 640))
+    return app
+
+
+def detect_faces_and_embeddings(
+    img_path: Path,
+    app: FaceAnalysis,
+    min_score: float = 0.5
+) -> List[np.ndarray]:
+    """Надёжная детекция лиц и извлечение эмбеддингов."""
+    img = imread_safe(img_path)
+    if img is None:
+        return []
+    faces = app.get(img)
+    result = []
+    for f in faces:
+        if getattr(f, "det_score", 1.0) < min_score:
+            continue
+        emb = getattr(f, "normed_embedding", None)
+        if emb is not None:
+            result.append(normalize_embedding(emb))
+    return result
+
 def _win_long(path: Path) -> str:
     p = str(path.resolve())
     if os.name == "nt":
@@ -380,7 +414,14 @@ def _win_long(path: Path) -> str:
     return p
 
 def imread_safe(path: Path):
-    return imread_exif_oriented(path)
+    """Простая и надёжная функция чтения изображений."""
+    try:
+        data = np.fromfile(str(path), dtype=np.uint8)
+        if data.size == 0:
+            return None
+        return cv2.imdecode(data, cv2.IMREAD_COLOR)
+    except Exception:
+        return None
 
 def merge_clusters_by_centroid(
     embeddings: List[np.ndarray],
