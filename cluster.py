@@ -432,7 +432,7 @@ def build_plan_live(
     input_dir: Path,
     det_size=(640, 640),
     min_score: float = 0.5,  # Сбалансированный порог для качества лиц
-    min_cluster_size: int = 1,  # Разрешаем кластеры из 1 элемента
+    min_cluster_size: int = 2,  # HDBSCAN требует минимум 2 элемента
     min_samples: int = 1,       # Минимальное количество образцов
     providers: List[str] = ("CPUExecutionProvider",),
     progress_callback=None,
@@ -577,7 +577,7 @@ def build_plan_live(
             print("⚠️ HDBSCAN timeout! Используем альтернативную агломеративную кластеризацию...")
             try:
                 from sklearn.cluster import AgglomerativeClustering
-                agg = AgglomerativeClustering(n_clusters=None, affinity='precomputed', linkage='average', distance_threshold=0.35)
+                agg = AgglomerativeClustering(n_clusters=None, metric='precomputed', linkage='average', distance_threshold=0.35)
                 raw_labels = agg.fit_predict(distance_matrix)
                 print(f"✅ AgglomerativeClustering завершен. Уникальные метки: {np.unique(raw_labels)}")
             except Exception as e2:
@@ -592,7 +592,7 @@ def build_plan_live(
             print(f"❌ Ошибка HDBSCAN без таймаута: {e}. Используем альтернативную агломеративную кластеризацию...")
             try:
                 from sklearn.cluster import AgglomerativeClustering
-                agg = AgglomerativeClustering(n_clusters=None, affinity='precomputed', linkage='average', distance_threshold=0.35)
+                agg = AgglomerativeClustering(n_clusters=None, metric='precomputed', linkage='average', distance_threshold=0.35)
                 raw_labels = agg.fit_predict(distance_matrix)
                 print(f"✅ AgglomerativeClustering завершен. Уникальные метки: {np.unique(raw_labels)}")
             except Exception as e2:
