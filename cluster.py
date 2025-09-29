@@ -125,6 +125,130 @@ def detect_faces_multi(
     faces = [f for f in faces if getattr(f, "det_score", 1.0) >= min_score_fallback]
     return faces
 
+# ------------------------------------------------------------
+# V2: Максимальный recall детекции (без ручного тюнинга пайпов)
+#  - EXIF-ориентация
+#  - Двойной инстанс модели с низким det_thresh
+#  - Каскад: base → enhance → hi-res(1280→1920) → rotate(±90°, 180°) → tiling
+#  - Дедупликация лиц на одном изображении по эмбеддингам
+# ------------------------------------------------------------
+
+def maybe_upscale(img: np.ndarray, target_long_side: int) -> np.ndarray:
+    h, w = img.shape[:2]
+    m = max(h, w)
+    if m >= target_long_side:
+        return img
+    scale = float(target_long_side) / m
+    new_w, new_h = int(round(w * scale)), int(round(h * scale))
+    return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+
+
+def init_best_pack(providers: List[str], det_size=(640, 640), det_thresh: float = 0.3) -> Tuple[FaceAnalysis, str]:
+    ctx_id = -1 if "cpu" in str(providers).lower() else 0
+    packs = ["antelopev2", "buffalo_sc", "buffalo_l"]
+    last_err = None
+    for name in packs:
+        try:
+            app = FaceAnalysis(name=name, providers=list(providers))
+            try:
+                app.prepare(ctx_id=ctx_id, det_size=det_size, det_thresh=det_thresh)
+            except TypeError:
+                app.prepare(ctx_id=ctx_id, det_size=det_size)
+            return app, name
+        except Exception as e:
+            last_err = e
+            continue
+    raise RuntimeError(f"FaceAnalysis init failed: {last_err}")
+
+
+def init_dual_detectors(providers: List[str]):
+    base_app, pack = init_best_pack(providers, det_size=(640, 640), det_thresh=0.30)
+    hi_app, _ = init_best_pack(providers, det_size=(1280, 1280), det_thresh=0.30)
+    ultra_app, _ = init_best_pack(providers, det_size=(1920, 1920), det_thresh=0.28)
+    return base_app, hi_app, ultra_app, pack
+
+
+def _dedup_by_embedding(faces: List, sim_cos_threshold: float = 0.92) -> List:
+    kept = []
+    for f in faces:
+        emb = getattr(f, 'normed_embedding', None)
+        if emb is None:
+            kept.append(f)
+            continue
+        emb = emb.astype(np.float64)
+        emb /= max(1e-12, np.linalg.norm(emb))
+        is_dup = False
+        for g in kept:
+            e2 = getattr(g, 'normed_embedding', None)
+            if e2 is None:
+                continue
+            e2 = e2.astype(np.float64)
+            e2 /= max(1e-12, np.linalg.norm(e2))
+            cos_sim = float(np.dot(emb, e2))
+            if cos_sim >= sim_cos_threshold:
+                is_dup = True
+                break
+        if not is_dup:
+            kept.append(f)
+    return kept
+
+
+def detect_faces_max_recall(
+    app_base: FaceAnalysis,
+    app_hi: FaceAnalysis,
+    app_ultra: FaceAnalysis,
+    img_bgr: np.ndarray,
+    min_score_main: float = 0.35,
+    min_score_fallback: float = 0.30,
+    enable_tiling: bool = True
+) -> List:
+    def _filter(fs, thr): return [f for f in (fs or []) if getattr(f, 'det_score', 1.0) >= thr]
+
+    faces = _filter(app_base.get(img_bgr), min_score_main)
+    if faces:
+        return _dedup_by_embedding(faces)
+
+    img1 = enhance_for_detection(img_bgr)
+    faces = _filter(app_base.get(img1), min_score_fallback)
+    if faces:
+        return _dedup_by_embedding(faces)
+
+    img2 = maybe_upscale(img1, 1200)
+    faces = _filter(app_hi.get(img2), min_score_fallback)
+    if faces:
+        return _dedup_by_embedding(faces)
+
+    img3 = maybe_upscale(img1, 1900)
+    faces = _filter(app_ultra.get(img3), min_score_fallback)
+    if faces:
+        return _dedup_by_embedding(faces)
+
+    for rot in (cv2.rotate(img3, cv2.ROTATE_90_CLOCKWISE),
+                cv2.rotate(img3, cv2.ROTATE_90_COUNTERCLOCKWISE),
+                cv2.rotate(img3, cv2.ROTATE_180)):
+        faces = _filter(app_ultra.get(rot), min_score_fallback)
+        if faces:
+            return _dedup_by_embedding(faces)
+
+    if enable_tiling:
+        H, W = img3.shape[:2]
+        tiles, ov, acc = 2, 0.2, []
+        th, tw = int(H / tiles), int(W / tiles)
+        for r in range(tiles):
+            for c in range(tiles):
+                y0 = max(0, int(r * th - ov * th))
+                y1 = min(H, int((r + 1) * th + ov * th))
+                x0 = max(0, int(c * tw - ov * tw))
+                x1 = min(W, int((c + 1) * tw + ov * tw))
+                tile = img3[y0:y1, x0:x1]
+                fs = _filter(app_ultra.get(tile), min_score_fallback)
+                if fs:
+                    acc.extend(fs)
+        if acc:
+            return _dedup_by_embedding(acc)
+
+    return []
+# ------------------------------------------------------------
 
 # ------------------------------------------------------------
 # HYBRID CLUSTERING HELPERS
@@ -756,11 +880,8 @@ def build_plan_live(
     if progress_callback:
         progress_callback(f"📂 Сканируется: {input_dir}, найдено изображений: {len(all_images)}", 1)
 
-    app_base, app_hi = init_dual_apps(
-        providers,
-        det_size_base=det_size,
-        det_size_hi=(max(960, det_size[0] * 2), max(960, det_size[1] * 2))
-    )
+    base_app, hi_app, ultra_app, pack = init_dual_detectors(providers)
+    print(f"[Detector pack] {pack}")
 
     if progress_callback:
         progress_callback("✅ Модель загружена, начинаем анализ изображений...", 10)
@@ -789,12 +910,11 @@ def build_plan_live(
             continue
             
         print(f"✅ Изображение загружено, размер: {img.shape}")
-        faces = detect_faces_multi(
-            app_base,
-            app_hi,
-            img,
-            min_score_main=min_score,
-            min_score_fallback=min(0.35, max(0.3, min_score * 0.8))
+        faces = detect_faces_max_recall(
+            base_app, hi_app, ultra_app, img,
+            min_score_main=0.35,
+            min_score_fallback=0.30,
+            enable_tiling=True
         )
         print(f"🔍 Найдено лиц: {len(faces) if faces else 0}")
         
