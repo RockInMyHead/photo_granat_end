@@ -5,7 +5,8 @@ import numpy as np
 from pathlib import Path
 from typing import List, Dict, Set, Tuple, Optional
 from sklearn.metrics.pairwise import cosine_distances
-from sklearn.cluster import OPTICS  # Используем OPTICS вместо HDBSCAN
+from sklearn.cluster import OPTICS, AgglomerativeClustering
+from sklearn.metrics import silhouette_score
 from insightface.app import FaceAnalysis
 import hdbscan
 from collections import defaultdict
@@ -22,6 +23,127 @@ SUPER_AGGRESSIVE_THRESHOLD = 0.26 # [1] Порог для супер-агрес�
 # =============================================================================
 
 IMG_EXTS = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp'}
+
+
+# ------------------------------------------------------------
+# HYBRID CLUSTERING HELPERS
+# ------------------------------------------------------------
+
+
+def _safe_silhouette(X: np.ndarray, labels: np.ndarray, metric: str = "cosine") -> Optional[float]:
+    try:
+        valid = labels[labels != -1]
+        if len(np.unique(valid)) < 2:
+            return None
+        return silhouette_score(X, labels, metric=metric)
+    except Exception:
+        return None
+
+
+def _quality(X: np.ndarray, labels: np.ndarray) -> Tuple[int, float, Optional[float]]:
+    n = len(labels)
+    n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+    noise_ratio = float(np.sum(labels == -1)) / max(n, 1)
+    sil = _safe_silhouette(X, labels, metric="cosine")
+    return n_clusters, noise_ratio, sil
+
+
+def cluster_with_optics_hybrid(X: np.ndarray, progress_callback=None) -> np.ndarray:
+    """OPTICS → quality check → HDBSCAN fallback."""
+    if progress_callback:
+        progress_callback("🔄 Кластеризация: OPTICS→проверка→HDBSCAN fallback", 80)
+
+    labels = None
+    try:
+        optics = OPTICS(metric="cosine", min_samples=2, cluster_method="xi", xi=0.05)
+        optics.fit(X)
+        labels = optics.labels_.copy()
+        if progress_callback:
+            n_optics = len(set(labels)) - (1 if -1 in labels else 0)
+            progress_callback(f"✅ OPTICS(xi) метки получены (кластеры: {n_optics})", 82)
+    except Exception as e:
+        if progress_callback:
+            progress_callback(f"⚠️ OPTICS ошибка: {e}. Переходим к HDBSCAN.", 82)
+        labels = None
+
+    use_fallback = labels is None
+    if labels is not None:
+        n_clusters, noise_ratio, sil = _quality(X, labels)
+        if n_clusters == 0 or (n_clusters == 1 and noise_ratio > 0.2) or noise_ratio > 0.75 or (sil is not None and sil < 0.12):
+            use_fallback = True
+
+    if use_fallback:
+        if progress_callback:
+            progress_callback("🔁 Fallback: HDBSCAN (авто min_cluster_size)", 83)
+        min_cluster_size = max(2, int(np.sqrt(len(X))))
+        try:
+            hdb = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=1, metric="euclidean")
+            labels_fb = hdb.fit_predict(X)
+            labels = labels_fb
+            if progress_callback:
+                n_fb, noise_fb, sil_fb = _quality(X, labels_fb)
+                sil_text = f"{sil_fb:.3f}" if sil_fb is not None else "n/a"
+                progress_callback(f"✅ HDBSCAN fallback: кластеры={n_fb}, шум={noise_fb:.0%}, silhouette={sil_text}", 85)
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"❌ HDBSCAN fallback не сработал: {e}. Все в один кластер.", 85)
+            labels = np.zeros(len(X), dtype=int)
+
+    if labels.size > 0 and np.all(labels == -1):
+        labels = np.arange(len(X), dtype=int)
+    return labels
+
+
+def refine_overwide_clusters(
+    cluster_map: Dict[int, Set[Path]],
+    X: np.ndarray,
+    owners: List[Path],
+    max_cosine_dist: float = 0.38
+) -> Dict[int, Set[Path]]:
+    path2idx = {p: i for i, p in enumerate(owners)}
+    new_map: Dict[int, Set[Path]] = {}
+    next_id = 0
+
+    for cid, paths in cluster_map.items():
+        path_list = list(paths)
+        filtered_paths = [p for p in path_list if p in path2idx]
+        idxs = [path2idx[p] for p in filtered_paths]
+        if len(idxs) <= 2:
+            new_map[next_id] = set(filtered_paths)
+            next_id += 1
+            continue
+
+        sub_X = X[idxs]
+        D = cosine_distances(sub_X)
+        tri = np.triu_indices_from(D, 1)
+        maxd = float(np.max(D[tri])) if tri[0].size > 0 else 0.0
+
+        if maxd <= max_cosine_dist:
+            new_map[next_id] = set(filtered_paths)
+            next_id += 1
+            continue
+
+        try:
+            agg = AgglomerativeClustering(
+                n_clusters=None,
+                distance_threshold=max_cosine_dist,
+                metric="cosine",
+                linkage="average"
+            )
+            sub_labels = agg.fit_predict(sub_X)
+            idxs_by_label = defaultdict(list)
+            for local_idx, lbl in enumerate(sub_labels):
+                idxs_by_label[lbl].append(local_idx)
+            for sub_id, local_indices in idxs_by_label.items():
+                sub_paths = {filtered_paths[idx] for idx in local_indices}
+                if sub_paths:
+                    new_map[next_id] = set(sub_paths)
+                    next_id += 1
+        except Exception:
+            new_map[next_id] = set(filtered_paths)
+            next_id += 1
+
+    return new_map
 
 def is_image(p: Path) -> bool:
     return p.suffix.lower() in IMG_EXTS
@@ -81,8 +203,8 @@ def merge_clusters_by_centroid(
         if progress_callback:
             progress_callback(f"📏 Авто-порог объединения: {threshold:.3f}", 93)
     elif threshold is None:
-        # Более агрессивный порог по умолчанию для лучшего объединения
-        threshold = 0.35
+        # Используем глобальный порог по умолчанию
+        threshold = DEFAULT_THRESHOLD
 
     next_cluster_id = 0
     label_to_group = {}
@@ -141,7 +263,7 @@ def merge_clusters_by_centroid(
                 additional_merges[label_j] = label_i
             # Дополнительная проверка: для маленьких кластеров еще более мягкие условия
             elif (len(cluster_embeddings[label_i]) <= 4 and len(cluster_embeddings[label_j]) <= 4 and 
-                  dist < 0.38):  # Более мягкий порог для маленьких кластеров
+                  dist < SMART_SMALL_THRESHOLD):
                 additional_merges[label_j] = label_i
     
     # Применяем дополнительные объединения
@@ -271,12 +393,12 @@ def post_process_clusters(
             dist = cosine_distances([centroid_i], [centroid_j])[0][0]
             
             # Более агрессивный анализ для постобработки
-            if dist < POSTPROCESS_THRESHOLD:  # Увеличиваем порог для начальной проверки
+            if dist < POSTPROCESS_THRESHOLD:
                 # Дополнительная проверка: валидируем качество объединенного кластера
                 combined_embeddings = embeddings_i + embeddings_j
                 
                 # Более мягкие пороги валидации для лучшего объединения
-                validation_threshold = 0.45 if (len(embeddings_i) <= 3 or len(embeddings_j) <= 3) else 0.40
+                validation_threshold = 0.35
                 
                 if validate_cluster_quality(combined_embeddings, threshold=validation_threshold):
                     clusters_to_merge.append((cluster_id_i, cluster_id_j))
@@ -400,7 +522,7 @@ def smart_final_merge(
             large_centroid = np.mean(large_embeddings, axis=0)
             
             dist = cosine_distances([small_centroid], [large_centroid])[0][0]
-            if dist < SMART_LARGE_THRESHOLD and dist < best_distance:  # Еще более мягкий порог для объединения с большими кластерами
+            if dist < SMART_LARGE_THRESHOLD and dist < best_distance:
                 best_distance = dist
                 best_match = large_id
         
@@ -416,7 +538,7 @@ def smart_final_merge(
                 other_centroid = np.mean(other_embeddings, axis=0)
                 
                 dist = cosine_distances([small_centroid], [other_centroid])[0][0]
-                if dist < SMART_SMALL_THRESHOLD and dist < best_distance:  # Более мягкий порог для объединения маленьких кластеров
+                if dist < SMART_SMALL_THRESHOLD and dist < best_distance:
                     best_distance = dist
                     best_match = other_small_id
         
@@ -485,22 +607,35 @@ def super_aggressive_merge(
             dist = cosine_distances([centroid_i], [centroid_j])[0][0]
             
             # Супер-агрессивный порог - объединяем практически все похожие лица
-            if dist < SUPER_AGGRESSIVE_THRESHOLD:  # Очень мягкий порог
+            if dist < SUPER_AGGRESSIVE_THRESHOLD:
                 merges_to_apply.append((cluster_id_i, cluster_id_j))
                 print(f"🔥 Супер-агрессивное объединение кластеров {cluster_id_i} и {cluster_id_j} (расстояние: {dist:.3f})")
     
     # Применяем объединения
     if merges_to_apply:
         print(f"🔥 Применяем {len(merges_to_apply)} супер-агрессивных объединений...")
-        final_cluster_map = cluster_map.copy()
-        
-        # Простое объединение - объединяем первый кластер со вторым
+        final_cluster_map = {cid: set(paths) for cid, paths in cluster_map.items()}
+
+        parents = {cid: cid for cid in final_cluster_map.keys()}
+
+        def find(x):
+            if parents[x] != x:
+                parents[x] = find(parents[x])
+            return parents[x]
+
+        def union(a, b):
+            ra, rb = find(a), find(b)
+            if ra == rb:
+                return
+            parents[rb] = ra
+            if ra in final_cluster_map and rb in final_cluster_map:
+                final_cluster_map[ra].update(final_cluster_map[rb])
+                final_cluster_map.pop(rb, None)
+
         for cluster_a, cluster_b in merges_to_apply:
-            if cluster_a in final_cluster_map and cluster_b in final_cluster_map:
-                final_cluster_map[cluster_a].update(final_cluster_map[cluster_b])
-                del final_cluster_map[cluster_b]
-                print(f"🔥 Супер-объединили кластер {cluster_b} с {cluster_a}")
-        
+            if cluster_a in parents and cluster_b in parents:
+                union(cluster_a, cluster_b)
+
         return final_cluster_map
     
     return cluster_map
@@ -611,26 +746,12 @@ def build_plan_live(
         }
 
     # Этап 2: Кластеризация
-    print(f"🔄 Начинаем кластеризацию {len(embeddings)} лиц через OPTICS...")
+    print(f"🔄 Начинаем гибридную кластеризацию {len(embeddings)} лиц...")
     if progress_callback:
-        progress_callback(f"🔄 Кластеризация {len(embeddings)} лиц через OPTICS...", 80)
+        progress_callback(f"🔄 Кластеризация {len(embeddings)} лиц (OPTICS→HDBSCAN)", 80)
 
-    # Готовим данные для OPTICS
     X = np.vstack(embeddings).astype(np.float64)
-    # Запускаем OPTICS
-    try:
-        optics = OPTICS(metric='cosine', min_samples=2)
-        raw_labels = optics.fit_predict(X)
-        print(f"✅ OPTICS завершён. Уникальные метки: {np.unique(raw_labels)}")
-    except Exception as e:
-        print(f"❌ OPTICS не удалось: {e}. Все в один кластер.")
-        raw_labels = np.zeros(len(embeddings), dtype=int)
-
-    # Fallback: если OPTICS пометил все точки как шум
-    if raw_labels.size > 0 and np.all(raw_labels == -1):
-        if progress_callback:
-            progress_callback("⚠️ Все точки помечены как шум OPTICS. Включаем резервный режим кластеризации.", 82)
-        raw_labels = np.arange(len(embeddings), dtype=int)
+    raw_labels = cluster_with_optics_hybrid(X, progress_callback=progress_callback)
 
     cluster_map, cluster_by_img = merge_clusters_by_centroid(
         embeddings=embeddings,
@@ -659,13 +780,16 @@ def build_plan_live(
         progress_callback=progress_callback
     )
     
-    # Супер-агрессивное объединение как последний этап
+    # Супер-агрессивное объединение как последний этап (можно отключить при необходимости)
     cluster_map = super_aggressive_merge(
         cluster_map=cluster_map,
         embeddings=embeddings,
         owners=owners,
         progress_callback=progress_callback
     )
+
+    # Дополнительная защита от "слишком широких" кластеров
+    cluster_map = refine_overwide_clusters(cluster_map, X, owners)
     
     # Обновляем cluster_by_img после всех объединений
     cluster_by_img = defaultdict(set)
