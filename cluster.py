@@ -558,48 +558,39 @@ def build_plan_live(
 
     print("🔄 Запускаем HDBSCAN...")
     try:
-        # Добавляем таймаут для HDBSCAN
         import signal
-        
-        def timeout_handler(signum, frame):
-            raise TimeoutError("HDBSCAN timeout")
-        
-        # Устанавливаем таймаут в 5 минут
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(300)  # 5 минут
-        
-        model = hdbscan.HDBSCAN(metric='precomputed', min_cluster_size=min_cluster_size, min_samples=min_samples)
-        raw_labels = model.fit_predict(distance_matrix)
-        
-        signal.alarm(0)  # Отключаем таймаут
-        print(f"✅ HDBSCAN завершен. Уникальные метки: {np.unique(raw_labels)}")
-        
-    except TimeoutError:
-        print("⚠️ HDBSCAN timeout! Используем альтернативную кластеризацию...")
-        # Fallback: используем KMeans как альтернативу
+        # Если SIGALRM доступен, используем таймаут, иначе запускаем HDBSCAN напрямую
+        if hasattr(signal, 'SIGALRM'):
+            def timeout_handler(signum, frame):
+                raise TimeoutError("HDBSCAN timeout")
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(300)  # 5 минут
+            model = hdbscan.HDBSCAN(metric='precomputed', min_cluster_size=min_cluster_size, min_samples=min_samples)
+            raw_labels = model.fit_predict(distance_matrix)
+            signal.alarm(0)
+            print(f"✅ HDBSCAN завершен. Уникальные метки: {np.unique(raw_labels)}")
+        else:
+            print("ℹ️ SIGALRM не доступен, запускаем HDBSCAN без таймаута")
+            model = hdbscan.HDBSCAN(metric='precomputed', min_cluster_size=min_cluster_size, min_samples=min_samples)
+            raw_labels = model.fit_predict(distance_matrix)
+            print(f"✅ HDBSCAN завершен без таймаута. Уникальные метки: {np.unique(raw_labels)}")
+    except (TimeoutError, Exception) as e:
+        print(f"⚠️ HDBSCAN failed or timeout: {e}. Используем альтернативную агломеративную кластеризацию...")
         try:
-            from sklearn.cluster import KMeans
-            # Определяем количество кластеров (примерно 1 кластер на 3-5 лиц)
-            n_clusters = max(1, min(len(embeddings) // 3, 20))
-            print(f"🔄 KMeans с {n_clusters} кластерами...")
-            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-            raw_labels = kmeans.fit_predict(X)
-            print(f"✅ KMeans завершен. Уникальные метки: {np.unique(raw_labels)}")
+            from sklearn.cluster import AgglomerativeClustering
+            # Кластеризация по расстоянию с порогом 0.35
+            print("🔄 AgglomerativeClustering с порогом 0.35 (precomputed)...")
+            agg = AgglomerativeClustering(
+                n_clusters=None,
+                affinity='precomputed',
+                linkage='average',
+                distance_threshold=0.35
+            )
+            raw_labels = agg.fit_predict(distance_matrix)
+            print(f"✅ AgglomerativeClustering завершен. Уникальные метки: {np.unique(raw_labels)}")
         except Exception as e2:
-            print(f"❌ Ошибка KMeans: {e2}. Используем простые кластеры...")
-            raw_labels = np.arange(len(embeddings), dtype=int)
-    except Exception as e:
-        print(f"❌ Ошибка HDBSCAN: {e}. Используем альтернативную кластеризацию...")
-        try:
-            from sklearn.cluster import KMeans
-            n_clusters = max(1, min(len(embeddings) // 3, 20))
-            print(f"🔄 KMeans с {n_clusters} кластерами...")
-            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-            raw_labels = kmeans.fit_predict(X)
-            print(f"✅ KMeans завершен. Уникальные метки: {np.unique(raw_labels)}")
-        except Exception as e2:
-            print(f"❌ Ошибка KMeans: {e2}. Используем простые кластеры...")
-            raw_labels = np.arange(len(embeddings), dtype=int)
+            print(f"❌ Альтернативная кластеризация не удалась: {e2}. Все в один кластер.")
+            raw_labels = np.zeros(len(embeddings), dtype=int)
 
     # Fallback: если HDBSCAN пометил все точки как шум, используем уникальные кластеры,
     # которые затем будут слиты нашими этапами объединения
