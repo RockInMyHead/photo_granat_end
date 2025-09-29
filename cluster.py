@@ -11,6 +11,12 @@ from insightface.app import FaceAnalysis
 import hdbscan
 from collections import defaultdict
 
+try:
+    from PIL import Image, ImageOps
+    _PIL_OK = True
+except Exception:
+    _PIL_OK = False
+
 # =============================================================================
 # Константы порогов кластеризации
 # =============================================================================
@@ -23,6 +29,101 @@ SUPER_AGGRESSIVE_THRESHOLD = 0.26 # [1] Порог для супер-агрес�
 # =============================================================================
 
 IMG_EXTS = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp'}
+
+
+def imread_exif_oriented(path: Path) -> Optional[np.ndarray]:
+    """Читает изображение с учётом EXIF-ориентации. Возвращает BGR np.ndarray или None."""
+    p = str(Path(path).resolve())
+    if _PIL_OK:
+        try:
+            with Image.open(p) as im:
+                im = ImageOps.exif_transpose(im)
+                im = im.convert('RGB')
+                arr = np.array(im)
+                return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+        except Exception:
+            pass
+    try:
+        data = np.fromfile(p, dtype=np.uint8)
+        if data.size == 0:
+            return None
+        return cv2.imdecode(data, cv2.IMREAD_COLOR)
+    except Exception:
+        return None
+
+
+def enhance_for_detection(img: np.ndarray) -> np.ndarray:
+    """Лёгкое улучшение: CLAHE по L-каналу + мягкая гамма."""
+    try:
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l2 = clahe.apply(l)
+        lab2 = cv2.merge([l2, a, b])
+        enhanced = cv2.cvtColor(lab2, cv2.COLOR_LAB2BGR)
+        gamma = 0.9
+        table = np.array([((i / 255.0) ** gamma) * 255 for i in np.arange(256)]).astype('uint8')
+        return cv2.LUT(enhanced, table)
+    except Exception:
+        return img
+
+
+def maybe_upscale_small(img: np.ndarray, min_side: int = 800) -> np.ndarray:
+    h, w = img.shape[:2]
+    m = max(h, w)
+    if m < min_side:
+        scale = min_side / float(m)
+        new_w, new_h = int(round(w * scale)), int(round(h * scale))
+        return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+    return img
+
+
+def init_dual_apps(providers: List[str], det_size_base=(640, 640), det_size_hi=(1280, 1280)):
+    """Подготавливает две копии FaceAnalysis с разными детекторами."""
+    ctx_id = -1 if "cpu" in str(providers).lower() else 0
+    app_base = FaceAnalysis(name="buffalo_l", providers=list(providers))
+    app_base.prepare(ctx_id=ctx_id, det_size=det_size_base)
+
+    app_hi = FaceAnalysis(name="buffalo_l", providers=list(providers))
+    app_hi.prepare(ctx_id=ctx_id, det_size=det_size_hi)
+    return app_base, app_hi
+
+
+def detect_faces_multi(
+    app_base: FaceAnalysis,
+    app_hi: FaceAnalysis,
+    img_bgr: np.ndarray,
+    min_score_main: float = 0.4,
+    min_score_fallback: float = 0.35
+) -> List:
+    """Многоступенчатая детекция."""
+    faces = app_base.get(img_bgr) or []
+    faces = [f for f in faces if getattr(f, "det_score", 1.0) >= min_score_main]
+    if faces:
+        return faces
+
+    img_enh = enhance_for_detection(img_bgr)
+    faces = app_base.get(img_enh) or []
+    faces = [f for f in faces if getattr(f, "det_score", 1.0) >= min_score_fallback]
+    if faces:
+        return faces
+
+    img_hi = maybe_upscale_small(img_enh, min_side=900)
+    faces = app_hi.get(img_hi) or []
+    faces = [f for f in faces if getattr(f, "det_score", 1.0) >= min_score_fallback]
+    if faces:
+        return faces
+
+    img_rot = cv2.rotate(img_hi, cv2.ROTATE_90_CLOCKWISE)
+    faces = app_hi.get(img_rot) or []
+    faces = [f for f in faces if getattr(f, "det_score", 1.0) >= min_score_fallback]
+    if faces:
+        return faces
+
+    img_rot2 = cv2.rotate(img_hi, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    faces = app_hi.get(img_rot2) or []
+    faces = [f for f in faces if getattr(f, "det_score", 1.0) >= min_score_fallback]
+    return faces
 
 
 # ------------------------------------------------------------
@@ -155,13 +256,7 @@ def _win_long(path: Path) -> str:
     return p
 
 def imread_safe(path: Path):
-    try:
-        data = np.fromfile(_win_long(path), dtype=np.uint8)
-        if data.size == 0:
-            return None
-        return cv2.imdecode(data, cv2.IMREAD_COLOR)
-    except Exception:
-        return None
+    return imread_exif_oriented(path)
 
 def merge_clusters_by_centroid(
     embeddings: List[np.ndarray],
@@ -661,9 +756,11 @@ def build_plan_live(
     if progress_callback:
         progress_callback(f"📂 Сканируется: {input_dir}, найдено изображений: {len(all_images)}", 1)
 
-    app = FaceAnalysis(name="buffalo_l", providers=list(providers))
-    ctx_id = -1 if "cpu" in str(providers).lower() else 0
-    app.prepare(ctx_id=ctx_id, det_size=det_size)
+    app_base, app_hi = init_dual_apps(
+        providers,
+        det_size_base=det_size,
+        det_size_hi=(max(960, det_size[0] * 2), max(960, det_size[1] * 2))
+    )
 
     if progress_callback:
         progress_callback("✅ Модель загружена, начинаем анализ изображений...", 10)
@@ -685,14 +782,20 @@ def build_plan_live(
         
         print(f"🔍 Обрабатываем изображение {i+1}/{total}: {p.name}")
         
-        img = imread_safe(p)
+        img = imread_exif_oriented(p)
         if img is None:
             print(f"❌ Не удалось прочитать изображение: {p.name}")
             unreadable.append(p)
             continue
             
         print(f"✅ Изображение загружено, размер: {img.shape}")
-        faces = app.get(img)
+        faces = detect_faces_multi(
+            app_base,
+            app_hi,
+            img,
+            min_score_main=min_score,
+            min_score_fallback=min(0.35, max(0.3, min_score * 0.8))
+        )
         print(f"🔍 Найдено лиц: {len(faces) if faces else 0}")
         
         if not faces:
