@@ -649,11 +649,16 @@ class PhotoClusterApp {
             if (!response.ok) {
                 throw new Error(result.detail || 'Unknown error');
             }
-            this.showNotification(`Перемещено: ${result.src} → ${result.dest}`, 'success');
-            // Обновляем текущее содержимое папки
-            this.navigateToFolder(this.currentPath);
+            // Извлекаем имя файла из пути
+            const fileName = src.split(/[\\/]/).pop();
+            const destFolder = dest.split(/[\\/]/).pop();
+            
+            // Сначала обновляем содержимое папки
+            await this.navigateToFolder(this.currentPath);
+            // Затем показываем уведомление (чтобы оно не пропало при обновлении DOM)
+            this.showNotification(`✅ "${fileName}" перемещен в папку "${destFolder}"`, 'success');
         } catch (error) {
-            this.showNotification('Ошибка перемещения: ' + error.message, 'error');
+            this.showNotification('❌ Ошибка перемещения: ' + error.message, 'error');
         }
     }
 
