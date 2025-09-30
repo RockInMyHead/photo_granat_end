@@ -22,6 +22,7 @@ class PhotoClusterApp {
         this.addQueueBtn = document.getElementById('addQueueBtn');
         this.tasksList = document.getElementById('tasksList');
         this.clearTasksBtn = document.getElementById('clearTasksBtn');
+        this.createZipBtn = document.getElementById('createZipBtn');
         
         // Проверяем что все элементы найдены
         const elements = {
@@ -35,7 +36,8 @@ class PhotoClusterApp {
             clearBtn: this.clearBtn,
             addQueueBtn: this.addQueueBtn,
             tasksList: this.tasksList,
-            clearTasksBtn: this.clearTasksBtn
+            clearTasksBtn: this.clearTasksBtn,
+            createZipBtn: this.createZipBtn
         };
         
         for (const [name, element] of Object.entries(elements)) {
@@ -68,6 +70,8 @@ class PhotoClusterApp {
         this.addQueueBtn.addEventListener('click', () => this.addToQueue(this.currentPath));
         // Кнопка очистки завершенных задач
         this.clearTasksBtn.addEventListener('click', () => this.clearCompletedTasks());
+        // Кнопка создания ZIP архива
+        this.createZipBtn.addEventListener('click', () => this.createZipArchive());
 
         // Загрузка файлов
         this.fileInput.addEventListener('change', (e) => this.handleFileUpload(e.target.files));
@@ -126,6 +130,13 @@ class PhotoClusterApp {
             
             this.currentPathEl.innerHTML = `<strong>Текущая папка:</strong> ${path}`;
             await this.displayFolderContents(data.contents);
+            
+            // Показываем кнопку ZIP если выбрана папка
+            if (this.currentPath && this.currentPath.trim() !== '') {
+                this.createZipBtn.style.display = 'inline-block';
+            } else {
+                this.createZipBtn.style.display = 'none';
+            }
             
         } catch (error) {
             this.showNotification('Ошибка доступа к папке: ' + error.message, 'error');
@@ -675,6 +686,48 @@ class PhotoClusterApp {
             }
         } catch (error) {
             this.showNotification('Ошибка очистки задач: ' + error.message, 'error');
+        }
+    }
+    
+    async createZipArchive() {
+        if (!this.currentPath) {
+            this.showNotification('❌ Выберите папку для создания архива', 'error');
+            return;
+        }
+        
+        try {
+            // Отключаем кнопку на время создания архива
+            this.createZipBtn.disabled = true;
+            this.createZipBtn.textContent = '⏳ Создание архива...';
+            
+            // Получаем имя папки для уведомления
+            const folderName = this.currentPath.split(/[\\/]/).pop();
+            
+            // Создаем скрытую ссылку для скачивания
+            const link = document.createElement('a');
+            link.href = `/api/zip?path=${encodeURIComponent(this.currentPath)}`;
+            link.download = `${folderName}.zip`;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            
+            // Запускаем скачивание
+            link.click();
+            
+            // Удаляем ссылку
+            setTimeout(() => {
+                document.body.removeChild(link);
+            }, 100);
+            
+            this.showNotification(`📦 Архив "${folderName}.zip" создается и скачивается...`, 'success');
+            
+        } catch (error) {
+            this.showNotification('❌ Ошибка создания архива: ' + error.message, 'error');
+        } finally {
+            // Возвращаем кнопку в исходное состояние
+            setTimeout(() => {
+                this.createZipBtn.disabled = false;
+                this.createZipBtn.textContent = '📦 Создать ZIP архив текущей папки';
+            }, 2000);
         }
     }
 }

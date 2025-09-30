@@ -512,6 +512,47 @@ async def move_item(item: MoveItem):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка перемещения: {e}")
 
+@app.get("/api/zip")
+async def create_zip(path: str):
+    """Создать ZIP архив из папки"""
+    folder_path = Path(path)
+    
+    if not folder_path.exists():
+        raise HTTPException(status_code=404, detail="Папка не найдена")
+    
+    if not folder_path.is_dir():
+        raise HTTPException(status_code=400, detail="Указанный путь не является папкой")
+    
+    # Создаем временный файл для ZIP архива
+    temp_dir = tempfile.gettempdir()
+    zip_filename = f"{folder_path.name}.zip"
+    zip_path = Path(temp_dir) / zip_filename
+    
+    try:
+        # Создаем ZIP архив
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # Рекурсивно добавляем все файлы из папки
+            for file_path in folder_path.rglob('*'):
+                if file_path.is_file():
+                    # Добавляем файл с относительным путем
+                    arcname = file_path.relative_to(folder_path.parent)
+                    zipf.write(file_path, arcname)
+        
+        # Возвращаем файл для скачивания
+        return FileResponse(
+            path=zip_path,
+            media_type='application/zip',
+            filename=zip_filename,
+            headers={
+                "Content-Disposition": f"attachment; filename={zip_filename}"
+            }
+        )
+    except Exception as e:
+        # Удаляем временный файл в случае ошибки
+        if zip_path.exists():
+            zip_path.unlink()
+        raise HTTPException(status_code=500, detail=f"Ошибка создания архива: {e}")
+
 @app.get("/favicon.ico")
 async def favicon():
     """Возвращает простой favicon чтобы избежать 404 ошибок"""

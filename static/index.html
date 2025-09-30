@@ -97,6 +97,29 @@
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(0,0,0,0.2);
         }
+        
+        .btn-secondary {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            font-size: 0.95rem;
+        }
+        
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
 
         .folder-btn {
             background: #ffffff;
@@ -528,6 +551,12 @@
 
                     <div class="current-path" id="currentPath">
                         <strong>Текущая папка:</strong> Выберите папку
+                    </div>
+                    
+                    <div style="margin: 10px 0; text-align: center;">
+                        <button id="createZipBtn" class="btn btn-secondary" style="display: none;">
+                            📦 Создать ZIP архив текущей папки
+                        </button>
                     </div>
 
                     <div class="folder-contents" id="folderContents">
