@@ -207,7 +207,7 @@ def distribute_to_folders(plan_result, input_dir: Path, progress_callback=None):
             
             try:
                 shutil.copy2(src, dst)
-                    copied += 1
+                copied += 1
             except Exception as e:
                 print(f"Ошибка копирования {src} -> {dst}: {e}")
     
@@ -227,7 +227,7 @@ def process_group_folder(input_dir: Path, progress_callback=None):
     # Сканируем все изображения в папке
     all_images = [p for p in input_dir.rglob("*") if is_image(p)]
     
-        if progress_callback:
+    if progress_callback:
         progress_callback(f"📂 Найдено {len(all_images)} изображений в групповой папке", 50)
     
     # Здесь можно добавить дополнительную логику обработки
